@@ -1,0 +1,12 @@
+[package]
+name = "vscode-fuzzy-score-rs"
+version = "0.1.0"
+authors = ["Andrii Semkiv <semkiv@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.11.0"
+log = "0.4.20"
+ndarray = "0.15.6"

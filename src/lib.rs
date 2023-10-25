@@ -13,6 +13,18 @@ pub struct FuzzyMatch {
     positions: Vec<usize>,
 }
 
+impl FuzzyMatch {
+    pub fn score(&self) -> Score
+    {
+        self.score
+    }
+
+    pub fn positions(&self) -> &Vec<usize>
+    {
+        &self.positions
+    }
+}
+
 struct MatchBonus;
 
 impl MatchBonus {

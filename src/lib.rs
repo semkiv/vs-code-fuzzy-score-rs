@@ -3,23 +3,71 @@
 
 use log::debug;
 
+/// Score is used to quantify how good a match is: the higher score the better match.
 pub type Score = u32;
 
+/// Represents a fuzzy match result.
+/// Contains the final score as well as the positions of the matching characters.
 pub struct FuzzyMatch {
     score: Score,
     positions: Vec<usize>,
 }
 
 impl FuzzyMatch {
+    /// Can be used to get the final score.
+    /// Score is a metric of how good a match is: the higher the score the better the match.
+    ///
+    /// # Examples:
+    ///
+    /// ```
+    /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz");
+    /// assert_eq!(m.unwrap().score(), 11);
+    /// ```
     pub fn score(&self) -> Score {
         self.score
     }
 
+    /// Can be used to get the positions of the matching characters in the target.
+    ///
+    /// # Examples:
+    ///
+    /// ```
+    /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz");
+    /// assert_eq!(*m.unwrap().positions(), vec![3, 4, 7]);
+    /// ```
+    ///
     pub fn positions(&self) -> &Vec<usize> {
         &self.positions
     }
 }
 
+/// Contains main part of the matching and scoring logic.
+/// Matches `query` against `target`.
+/// If there's a match returns `Some(FuzzyMatch)` containing the final score
+/// and the positions of the matching characters in `target`, `None` otherwise.
+/// Also returns `None` if either `query` or `target` is empty or `target` is shorter than `query`.
+///
+/// # Examples:
+///
+/// ```
+/// // there's a match
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz").unwrap();
+/// assert_eq!(m.score(), 11);
+/// assert_eq!(*m.positions(), vec![3, 4, 7]);
+/// ```
+///
+/// ```
+/// // no match
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("foo", "barbaz");
+/// assert!(m.is_none());
+/// ```
+///
+/// ```
+/// // target is too short
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("foobar", "bar");
+/// assert!(m.is_none());
+/// ```
+///
 pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     if query.is_empty() {
         debug!("Query is empty");
@@ -429,11 +477,9 @@ mod tests {
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1
     fn simple_match() {
-        let result = fuzzy_match("C", "abc");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 1);
-        assert_eq!(result.positions, vec![2]);
+        let result = fuzzy_match("C", "abc").unwrap();
+        assert_eq!(result.score(), 1);
+        assert_eq!(*result.positions(), vec![2]);
     }
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1
@@ -441,51 +487,41 @@ mod tests {
     // 'E' (query[2]) matches 'e' (target[4]) => score 1 + bonus for consecutive match of length 2 (2 * 5) = 11
     // total score: 1 + 6 + 11 = 18
     fn consecutive_match() {
-        let result = fuzzy_match("CDE", "abcde");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 18);
-        assert_eq!(result.positions, vec![2, 3, 4]);
+        let result = fuzzy_match("CDE", "abcde").unwrap();
+        assert_eq!(result.score(), 18);
+        assert_eq!(*result.positions(), vec![2, 3, 4]);
     }
 
     #[test]
     // 'c' (query[0]) matches 'c' (target[2]) => score 1 + 1 bonus for the same case = 2
     fn same_case_match() {
-        let result = fuzzy_match("c", "abc");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 2);
-        assert_eq!(result.positions, vec![2]);
+        let result = fuzzy_match("c", "abc").unwrap();
+        assert_eq!(result.score(), 2);
+        assert_eq!(*result.positions(), vec![2]);
     }
 
     #[test]
     // 'A' (query[0]) matches 'a' (target[0]) => score 1 + 8 bonus for matching beginning of the word = 9
     fn word_start_match() {
-        let result = fuzzy_match("A", "abc");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 9);
-        assert_eq!(result.positions, vec![0]);
+        let result = fuzzy_match("A", "abc").unwrap();
+        assert_eq!(result.score(), 9);
+        assert_eq!(*result.positions(), vec![0]);
     }
 
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1 + 5 bonus for matching after a separator = 6
     fn after_slash_match() {
-        let result = fuzzy_match("C", "a/c");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 6);
-        assert_eq!(result.positions, vec![2]);
+        let result = fuzzy_match("C", "a/c").unwrap();
+        assert_eq!(result.score(), 6);
+        assert_eq!(*result.positions(), vec![2]);
     }
 
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1 + 4 bonus for matching after a separator = 6
     fn after_space_match() {
-        let result = fuzzy_match("C", "a c");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 5);
-        assert_eq!(result.positions, vec![2]);
+        let result = fuzzy_match("C", "a c").unwrap();
+        assert_eq!(result.score(), 5);
+        assert_eq!(*result.positions(), vec![2]);
     }
 
     #[test]
@@ -497,11 +533,9 @@ mod tests {
     //     2 bonus for matching camel case = 4
     // total score: 10 + 4 + 4 = 18
     fn camel_case_match() {
-        let result = fuzzy_match("NPE", "NullPointerException");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 18);
-        assert_eq!(result.positions, vec![0, 4, 11]);
+        let result = fuzzy_match("NPE", "NullPointerException").unwrap();
+        assert_eq!(result.score(), 18);
+        assert_eq!(*result.positions(), vec![0, 4, 11]);
     }
 
     #[test]
@@ -516,11 +550,9 @@ mod tests {
     // total score: 10 + 7 + 12 + 17 = 46
     // camel case bonus must not be activated
     fn camel_case_match_no_boost() {
-        let result = fuzzy_match("HTTP", "HTTP");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 46);
-        assert_eq!(result.positions, vec![0, 1, 2, 3]);
+        let result = fuzzy_match("HTTP", "HTTP").unwrap();
+        assert_eq!(result.score(), 46);
+        assert_eq!(*result.positions(), vec![0, 1, 2, 3]);
     }
 
     // 'd' (query[0]) matches 'd' (target[1]) => score 1 + 1 bonus for matching the case = 2
@@ -530,19 +562,15 @@ mod tests {
     // de[1] must not receive any bonus for matching ede[0]
     #[test]
     fn query_matches_target_in_sequence() {
-        let result = fuzzy_match("de", "ede");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 9);
-        assert_eq!(result.positions, vec![1, 2]);
+        let result = fuzzy_match("de", "ede").unwrap();
+        assert_eq!(result.score(), 9);
+        assert_eq!(*result.positions(), vec![1, 2]);
     }
 
     #[test]
     fn typo_in_query() {
-        let result = fuzzy_match("contguous", "contiguous");
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.score, 106);
-        assert_eq!(result.positions, vec![0, 1, 2, 3, 5, 6, 7, 8, 9]);
+        let result = fuzzy_match("contguous", "contiguous").unwrap();
+        assert_eq!(result.score(), 106);
+        assert_eq!(*result.positions(), vec![0, 1, 2, 3, 5, 6, 7, 8, 9]);
     }
 }

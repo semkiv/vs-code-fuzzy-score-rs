@@ -115,13 +115,13 @@ mod details {
                             match_sequence_length,
                         )
                     } else {
-                        0
+                        NO_SCORE
                     };
 
                 // We have a score and it's equal or larger than the left score
                 // Match: sequence continues growing from previous diag value
                 // Score: increases by diag score value
-                if score > 0
+                if score > NO_SCORE
                     && (left_index.is_none()
                         || diagonal_index.is_none()
                         || left_index.is_some_and(|left| {
@@ -143,7 +143,7 @@ mod details {
                     scores[current_index] = if let Some(index) = left_index {
                         scores[index]
                     } else {
-                        0
+                        NO_SCORE
                     };
                 }
             }
@@ -185,7 +185,7 @@ mod details {
             target, query, final_score, positions
         );
 
-        if final_score == 0 {
+        if final_score == NO_SCORE {
             return None;
         }
 
@@ -194,6 +194,8 @@ mod details {
             positions,
         })
     }
+
+    const NO_SCORE: Score = 0;
 
     enum Separator {
         Backslash,
@@ -266,8 +268,6 @@ mod details {
         previous_target_char: Option<char>,
         match_sequence_length: usize,
     ) -> Score {
-        const NO_SCORE: Score = 0;
-
         let query_char_lowercase = query_char.to_lowercase().to_string();
         let target_char_lowercase = target_char.to_lowercase().to_string();
 

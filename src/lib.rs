@@ -587,4 +587,11 @@ mod tests {
         assert_eq!(result.score(), 17);
         assert_eq!(*result.positions(), vec![0, 1]);
     }
+
+    #[test]
+    fn non_ascii_chars_emojis() {
+        let result = fuzzy_match("🐼🐣🦀🦠", "🐲🐼🐣🦀🦞🦠").unwrap();
+        assert_eq!(result.score(), 23);
+        assert_eq!(*result.positions(), vec![1, 2, 3, 5]);
+    }
 }

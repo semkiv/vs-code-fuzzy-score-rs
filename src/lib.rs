@@ -79,8 +79,8 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
         return None;
     }
 
-    let target_length = target.len();
-    let query_length = query.len();
+    let target_length = target.chars().count();
+    let query_length = query.chars().count();
 
     if target_length < query_length {
         debug!(
@@ -114,8 +114,8 @@ mod details {
         //  r   X   X   X   X   X   X
         //  y   X   X   X   X   X   X
         //
-        let target_length = target.len();
-        let query_length = query.len();
+        let target_length = target.chars().count();
+        let query_length = query.chars().count();
         let mut matches = Array2::zeros([query_length, target_length]);
         let mut scores = Array2::zeros([query_length, target_length]);
 
@@ -572,5 +572,19 @@ mod tests {
         let result = fuzzy_match("contguous", "contiguous").unwrap();
         assert_eq!(result.score(), 106);
         assert_eq!(*result.positions(), vec![0, 1, 2, 3, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn non_ascii_chars_cyrillic() {
+        let result = fuzzy_match("тест", "Текст").unwrap();
+        assert_eq!(result.score(), 25);
+        assert_eq!(*result.positions(), vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn non_ascii_chars_chinese() {
+        let result = fuzzy_match("打电", "打电动").unwrap();
+        assert_eq!(result.score(), 17);
+        assert_eq!(*result.positions(), vec![0, 1]);
     }
 }

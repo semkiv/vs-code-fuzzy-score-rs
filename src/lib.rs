@@ -58,6 +58,14 @@ impl PartialOrd for FuzzyMatch {
     }
 }
 
+impl Eq for FuzzyMatch {}
+
+impl Ord for FuzzyMatch {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score.cmp(&other.score)
+    }
+}
+
 impl Display for FuzzyMatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut positions = String::new();
@@ -708,5 +716,40 @@ mod tests {
             positions: vec![0, 1],
         };
         assert!(fm1 >= fm2);
+    }
+
+    #[test]
+    fn comparison_sort() {
+        let mut unsorted = vec![
+            FuzzyMatch {
+                score: 3,
+                positions: vec![2, 5, 8],
+            },
+            FuzzyMatch {
+                score: 1,
+                positions: vec![0, 1, 5, 7],
+            },
+            FuzzyMatch {
+                score: 2,
+                positions: vec![0, 1],
+            },
+        ];
+
+        let expected = vec![
+            FuzzyMatch {
+                score: 1,
+                positions: vec![0, 1, 5, 7],
+            },
+            FuzzyMatch {
+                score: 2,
+                positions: vec![0, 1],
+            },
+            FuzzyMatch {
+                score: 3,
+                positions: vec![2, 5, 8],
+            },
+        ];
+        unsorted.sort();
+        assert_eq!(unsorted, expected);
     }
 }

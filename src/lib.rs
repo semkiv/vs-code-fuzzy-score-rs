@@ -2,12 +2,17 @@
 // see https://github.com/microsoft/vscode/blob/648dbbe9a59ab4cf843d9e37f64153b9f0793c15/src/vs/base/common/fuzzyScorer.ts
 
 use log::debug;
+use std::{
+    cmp::Ordering,
+    fmt::{Debug, Display},
+};
 
 /// Score is used to quantify how good a match is: the higher score the better match.
 pub type Score = u32;
 
 /// Represents a fuzzy match result.
 /// Contains the final score as well as the positions of the matching characters.
+#[derive(Debug)]
 pub struct FuzzyMatch {
     score: Score,
     positions: Vec<usize>,
@@ -41,11 +46,42 @@ impl FuzzyMatch {
     }
 }
 
+impl PartialEq for FuzzyMatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.score.eq(&other.score)
+    }
+}
+
+impl PartialOrd for FuzzyMatch {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.score.partial_cmp(&other.score)
+    }
+}
+
+impl Display for FuzzyMatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut positions = String::new();
+        let mut pos_itr = self.positions().iter().peekable();
+        while let Some(pos) = pos_itr.next() {
+            positions.push_str(&pos.to_string());
+            if let Some(_) = pos_itr.peek() {
+                positions.push_str(", ");
+            }
+        }
+        write!(
+            f,
+            "FuzzyMatch {{ score: {}, positions: [{}] }}",
+            self.score(),
+            positions
+        )
+    }
+}
+
 /// Contains main part of the matching and scoring logic.
 /// Matches `query` against `target`.
-/// If there's a match returns `Some(FuzzyMatch)` containing the final score
-/// and the positions of the matching characters in `target`, `None` otherwise.
-/// Also returns `None` if either `query` or `target` is empty or `target` is shorter than `query`.
+/// If there's a match returns [`Some<FuzzyMatch>`] containing the final score
+/// and the positions of the matching characters in `target`, [`None`] otherwise.
+/// Also returns [`None`] if either `query` or `target` is empty or `target` is shorter than `query`.
 ///
 /// # Examples:
 ///
@@ -101,11 +137,11 @@ mod details {
     use std::{fmt::Display, iter};
 
     pub fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
-        // Build Scorer Matrix:
-        // The matrix is composed of query q and target t. For each index we score
-        // q[i] with t[i] and compare that with the previous score. If the score is
-        // equal or larger, we keep the match. In addition to the score, we also keep
-        // the length of the consecutive matches to use as boost for the score.
+        // Build a scorer matrix:
+        // The matrix is composed of query q and target t.
+        // For each index we score q[i] with t[i] and compare that with the previous score.
+        // If the score is equal or larger, we keep the match.
+        // In addition to the score, we also keep the length of the consecutive matches to use as boost for the score.
         //
         //      t   a   r   g   e   t
         //  q   X   X   X   X   X   X
@@ -151,8 +187,9 @@ mod details {
 
                 // If we are not matching on the first query character any more, we only produce a
                 // score if we had a score previously for the last query index (by looking at the diagonal score).
-                // This makes sure that the query always matches in sequence on the target. For example
-                // given a target of "ede" and a query of "de", we would otherwise produce a wrong high score
+                // This makes sure that the query always matches in sequence on the target.
+                // For example given a target of "ede" and a query of "de",
+                // we would otherwise produce a wrong high score
                 // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
                 let score =
                     if query_index == 0 || diagonal_index.is_some_and(|idx| scores[idx] != 0) {
@@ -166,9 +203,9 @@ mod details {
                         NO_SCORE
                     };
 
-                // We have a score and it's equal or larger than the left score
-                // Match: sequence continues growing from previous diag value
-                // Score: increases by diag score value
+                // We have a score and it's equal or larger than the left score.
+                // Match: sequence continues growing from previous diag value.
+                // Score: increases by diag score value.
                 if score > NO_SCORE
                     && (left_index.is_none()
                         || diagonal_index.is_none()
@@ -183,9 +220,9 @@ mod details {
                         score
                     };
                 }
-                // We either have no score or the score is lower than the left score
-                // Match: reset to 0
-                // Score: pick up from left hand side
+                // We either have no score or the score is lower than the left score.
+                // Match: reset to 0.
+                // Score: pick up from left hand side.
                 else {
                     matches[current_index] = 0;
                     scores[current_index] = if let Some(index) = left_index {
@@ -197,7 +234,7 @@ mod details {
             }
         }
 
-        // Restore Positions (starting from bottom right of matrix)
+        // Restore positions (starting from bottom right of matrix)
         let mut positions = Vec::new();
         let mut query_index_it = (0..query_length).rev().peekable();
         let mut target_index_it = (0..target_length).rev().peekable();
@@ -454,6 +491,8 @@ mod details {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test]
@@ -593,5 +632,25 @@ mod tests {
         let result = fuzzy_match("🐼🐣🦀🦠", "🐲🐼🐣🦀🦞🦠").unwrap();
         assert_eq!(result.score(), 23);
         assert_eq!(*result.positions(), vec![1, 2, 3, 5]);
+    }
+
+    #[test]
+    fn comparison() {
+        let fm1 = FuzzyMatch {
+            score: 10,
+            positions: vec![0, 1],
+        };
+        let fm2 = FuzzyMatch {
+            score: 1,
+            positions: vec![2, 5, 8],
+        };
+        let fm3 = FuzzyMatch {
+            score: 1,
+            positions: vec![0, 1],
+        };
+        assert_ne!(fm1, fm2);
+        assert!(fm2 < fm1);
+        assert_eq!(fm2, fm3);
+        assert!(fm1 > fm3);
     }
 }

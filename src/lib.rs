@@ -258,11 +258,11 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     positions.reverse();
 
     // Print matrices
-    debug!(
+    trace!(
         "{}",
         format_matrix("Matches matrix:", query, target, &matches, 4)
     );
-    debug!(
+    trace!(
         "{}",
         format_matrix("Scores matrix:", query, target, &scores, 4)
     );

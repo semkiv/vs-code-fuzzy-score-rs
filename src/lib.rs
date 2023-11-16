@@ -57,7 +57,7 @@ impl PartialEq for FuzzyMatch {
 
 impl PartialOrd for FuzzyMatch {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.score.partial_cmp(&other.score)
+        Some(self.cmp(other))
     }
 }
 
@@ -75,7 +75,7 @@ impl Display for FuzzyMatch {
         let mut pos_itr = self.positions().iter().peekable();
         while let Some(pos) = pos_itr.next() {
             positions.push_str(&pos.to_string());
-            if let Some(_) = pos_itr.peek() {
+            if pos_itr.peek().is_some() {
                 positions.push_str(", ");
             }
         }
@@ -162,7 +162,7 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     for (query_index, query_char) in query.chars().enumerate() {
         // we assume that `target` is not empty
         for (target_index, (previous_target_char, target_char)) in
-            iter::once((None, target.chars().nth(0).unwrap()))
+            iter::once((None, target.chars().next().unwrap()))
                 .chain(
                     target
                         .chars()
@@ -327,11 +327,13 @@ impl MatchBonus {
         8
     }
     fn consecutive(length: usize) -> Score {
-        Score::try_from(length).expect(&format!(
-            "Match length does not fit into {}. Is your match really {} characters long?",
-            std::any::type_name::<Score>(),
-            length
-        )) * 5
+        Score::try_from(length).unwrap_or_else(|_| {
+            panic!(
+                "Match length does not fit into {}. Is your match really {} characters long?",
+                std::any::type_name::<Score>(),
+                length
+            )
+        }) * 5
     }
     fn following_separator(separator: Separator) -> Score {
         match separator {
@@ -392,17 +394,9 @@ fn score_one_pair(
         increment_score("Same case", MatchBonus::letter_case(), &mut score);
     }
 
-    // Start of word bonus
-    if let None = previous_target_char {
-        increment_score(
-            "Matches beginning of the word",
-            MatchBonus::word_start(),
-            &mut score,
-        );
-    } else {
-        let previous_target_char = previous_target_char.unwrap();
-        // After a separator bonus
+    if let Some(previous_target_char) = previous_target_char {
         if let Some(separator) = Separator::from_char(previous_target_char) {
+            // After a separator bonus
             increment_score(
                 "Matches after a separator",
                 MatchBonus::following_separator(separator),
@@ -421,6 +415,13 @@ fn score_one_pair(
                 );
             }
         }
+    } else {
+        // Start of word bonus
+        increment_score(
+            "Matches beginning of the word",
+            MatchBonus::word_start(),
+            &mut score,
+        );
     }
 
     trace!("Final score {}", score);
@@ -483,7 +484,7 @@ fn format_matrix<T: Display>(
             ));
         }
 
-        if let Some(_) = query_it.peek() {
+        if query_it.peek().is_some() {
             out.push('\n');
         }
     }

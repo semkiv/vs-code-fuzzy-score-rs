@@ -1,6 +1,6 @@
 [package]
 name = "vscode-fuzzy-score-rs"
-version = "0.1.0"
+version = "0.2.5"
 authors = ["Andrii Semkiv <semkiv@gmail.com>"]
 edition = "2021"
 

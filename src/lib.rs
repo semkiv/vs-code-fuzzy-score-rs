@@ -15,7 +15,7 @@ pub type Score = u32;
 
 /// Represents a fuzzy match result.
 /// Contains the final score as well as the positions of the matching characters.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FuzzyMatch {
     score: Score,
     positions: Vec<usize>,

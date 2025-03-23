@@ -2,11 +2,11 @@
 name = "vscode-fuzzy-score-rs"
 version = "0.2.5"
 authors = ["Andrii Semkiv <semkiv@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-itertools = "0.11.0"
-log = "0.4.20"
-ndarray = "0.15.6"
+itertools = "0.14.0"
+log = "0.4.26"
+ndarray = "0.16.1"

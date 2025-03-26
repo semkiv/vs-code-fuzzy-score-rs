@@ -365,9 +365,7 @@ fn score_one_pair(
     if !considered_equal(&query_char_lowercase, &target_char_lowercase) {
         trace!(
             "'{}' does not match '{}', score {}",
-            query_char,
-            target_char,
-            NO_SCORE
+            query_char, target_char, NO_SCORE
         );
         return NO_SCORE;
     }

@@ -1,0 +1,4 @@
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+allowed-idents-below-min-chars = ["..", "a", "b", "'_"]
+min-ident-chars-threshold = 2

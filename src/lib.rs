@@ -1,20 +1,20 @@
 // based on Visual Studio Code fuzzy matching algorithm
 // see https://github.com/microsoft/vscode/blob/648dbbe9a59ab4cf843d9e37f64153b9f0793c15/src/vs/base/common/fuzzyScorer.ts
 
-use itertools::Itertools;
+use itertools::Itertools as _;
 use log::{debug, trace};
 use ndarray::Array2;
-use std::{
-    cmp::Ordering,
-    fmt::{Debug, Display},
-    iter,
-};
+
+use std::cmp::Ordering;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write as _};
 
 /// Score is used to quantify how good a match is: the higher score the better match.
+///
 pub type Score = u32;
 
 /// Represents a fuzzy match result.
 /// Contains the final score as well as the positions of the matching characters.
+///
 #[derive(Clone, Debug)]
 pub struct FuzzyMatch {
     score: Score,
@@ -31,7 +31,9 @@ impl FuzzyMatch {
     /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz");
     /// assert_eq!(m.unwrap().score(), 11);
     /// ```
-    pub fn score(&self) -> Score {
+    ///
+    #[must_use]
+    pub const fn score(&self) -> Score {
         self.score
     }
 
@@ -44,7 +46,8 @@ impl FuzzyMatch {
     /// assert_eq!(*m.unwrap().positions(), vec![3, 4, 7]);
     /// ```
     ///
-    pub fn positions(&self) -> &Vec<usize> {
+    #[must_use]
+    pub const fn positions(&self) -> &Vec<usize> {
         &self.positions
     }
 }
@@ -70,7 +73,11 @@ impl Ord for FuzzyMatch {
 }
 
 impl Display for FuzzyMatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    #[expect(
+        clippy::min_ident_chars,
+        reason = "Corresponds to the name used in the trait"
+    )]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut positions = String::new();
         let mut pos_itr = self.positions().iter().peekable();
         while let Some(pos) = pos_itr.next() {
@@ -89,6 +96,7 @@ impl Display for FuzzyMatch {
 }
 
 /// Contains main part of the matching and scoring logic.
+///
 /// Matches `query` against `target`.
 /// If there's a match returns [`Some<FuzzyMatch>`] containing the final score
 /// and the positions of the matching characters in `target`, [`None`] otherwise.
@@ -115,6 +123,7 @@ impl Display for FuzzyMatch {
 /// assert!(m.is_none());
 /// ```
 ///
+#[must_use]
 pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     if query.is_empty() {
         debug!("Query is empty");
@@ -131,8 +140,7 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
 
     if target_length < query_length {
         debug!(
-            "Query '{}' (length {}) is too long for target '{}' (length {})",
-            query, query_length, target, target_length
+            "Query '{query}' (length {query_length}) is too long for target '{target}' (length {target_length})"
         );
         return None; // impossible for query to be contained in target
     }
@@ -160,34 +168,25 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     let mut scores = Array2::zeros([query_length, target_length]);
 
     for (query_index, query_char) in query.chars().enumerate() {
-        // we assume that `target` is not empty
-        for (target_index, (previous_target_char, target_char)) in
-            iter::once((None, target.chars().next().unwrap()))
-                .chain(
-                    target
-                        .chars()
-                        .tuple_windows()
-                        .map(|(prev, curr)| (Some(prev), curr)),
-                )
-                .enumerate()
+        for (target_index, (previous_target_char, target_char)) in target
+            .chars()
+            .next()
+            .map(|chr| (None, chr))
+            .into_iter()
+            .chain(
+                target
+                    .chars()
+                    .tuple_windows()
+                    .map(|(prev, curr)| (Some(prev), curr)),
+            )
+            .enumerate()
         {
             let current_index = [query_index, target_index];
-            let left_index = if target_index > 0 {
-                Some([query_index, target_index - 1])
-            } else {
-                None
-            };
-            let diagonal_index = if query_index > 0 && target_index > 0 {
-                Some([query_index - 1, target_index - 1])
-            } else {
-                None
-            };
+            let left_index = (target_index > 0).then(|| [query_index, target_index - 1]);
+            let diagonal_index =
+                (query_index > 0 && target_index > 0).then(|| [query_index - 1, target_index - 1]);
 
-            let match_sequence_length = if let Some(index) = diagonal_index {
-                matches[index]
-            } else {
-                0
-            };
+            let match_sequence_length = diagonal_index.map_or(0, |index| matches[index]);
 
             // If we are not matching on the first query character any more, we only produce a
             // score if we had a score previously for the last query index (by looking at the diagonal score).
@@ -217,22 +216,14 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
                     }))
             {
                 matches[current_index] = match_sequence_length + 1;
-                scores[current_index] = if let Some(index) = diagonal_index {
-                    scores[index] + score
-                } else {
-                    score
-                };
+                scores[current_index] = diagonal_index.map_or(score, |index| scores[index] + score);
             }
             // We either have no score or the score is lower than the left score.
             // Match: reset to 0.
             // Score: pick up from left hand side.
             else {
                 matches[current_index] = 0;
-                scores[current_index] = if let Some(index) = left_index {
-                    scores[index]
-                } else {
-                    NO_SCORE
-                };
+                scores[current_index] = left_index.map_or(NO_SCORE, |index| scores[index]);
             }
         }
     }
@@ -246,14 +237,11 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
         let target_index = *target_index_it.peek().unwrap();
         let current_index = [query_index, target_index];
         let current_match = matches[current_index];
-        if current_match == 0 {
-            target_index_it.next(); // go left
-        } else {
+        if current_match != 0 {
             positions.push(target_index);
-            // go up and left
-            query_index_it.next();
-            target_index_it.next();
+            query_index_it.next(); // go up
         }
+        target_index_it.next(); // go left
     }
     positions.reverse();
 
@@ -269,8 +257,7 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
 
     let final_score = scores[[query_length - 1, target_length - 1]];
     debug!(
-        "Target: '{}', query: '{}', final score: {}, matching positions: {:#?}",
-        target, query, final_score, positions
+        "Target: '{target}', query: '{query}', final score: {final_score}, matching positions: {positions:#?}"
     );
 
     if final_score == NO_SCORE {
@@ -298,8 +285,8 @@ enum Separator {
 }
 
 impl Separator {
-    fn from_char(ch: char) -> Option<Separator> {
-        match ch {
+    const fn from_char(chr: char) -> Option<Self> {
+        match chr {
             '\\' => Some(Self::Backslash),
             ':' => Some(Self::Colon),
             '-' => Some(Self::Dash),
@@ -317,25 +304,25 @@ impl Separator {
 struct MatchBonus;
 
 impl MatchBonus {
-    fn base() -> Score {
+    const fn base() -> Score {
         1
     }
-    fn letter_case() -> Score {
+
+    const fn letter_case() -> Score {
         1
     }
-    fn word_start() -> Score {
+
+    const fn word_start() -> Score {
         8
     }
+
     fn consecutive(length: usize) -> Score {
         Score::try_from(length).unwrap_or_else(|_| {
-            panic!(
-                "Match length does not fit into {}. Is your match really {} characters long?",
-                std::any::type_name::<Score>(),
-                length
-            )
+            panic!("Consecutive match length {length} does not fit into 'Score' type")
         }) * 5
     }
-    fn following_separator(separator: Separator) -> Score {
+
+    const fn following_separator(separator: &Separator) -> Score {
         match separator {
             Separator::Slash | Separator::Backslash => 5, // prefer path separators...
             Separator::Underscore
@@ -347,7 +334,8 @@ impl MatchBonus {
             | Separator::Colon => 4, // ...over other separators
         }
     }
-    fn camel_case() -> Score {
+
+    const fn camel_case() -> Score {
         2
     }
 }
@@ -363,17 +351,14 @@ fn score_one_pair(
 
     // No match - no score
     if !considered_equal(&query_char_lowercase, &target_char_lowercase) {
-        trace!(
-            "'{}' does not match '{}', score {}",
-            query_char, target_char, NO_SCORE
-        );
+        trace!("'{query_char}' does not match '{target_char}', score {NO_SCORE}");
         return NO_SCORE;
     }
 
     let mut score = NO_SCORE;
     // Character match bonus
     increment_score(
-        &format!("'{}' matches '{}'", query_char, target_char),
+        &format!("'{query_char}' matches '{target_char}'"),
         MatchBonus::base(),
         &mut score,
     );
@@ -381,7 +366,7 @@ fn score_one_pair(
     // Consecutive match bonus
     if match_sequence_length > 0 {
         increment_score(
-            &format!("Consecutive match of length {}", match_sequence_length),
+            &format!("Consecutive match of length {match_sequence_length}"),
             MatchBonus::consecutive(match_sequence_length),
             &mut score,
         );
@@ -397,7 +382,7 @@ fn score_one_pair(
             // After a separator bonus
             increment_score(
                 "Matches after a separator",
-                MatchBonus::following_separator(separator),
+                MatchBonus::following_separator(&separator),
                 &mut score,
             );
         } else {
@@ -422,13 +407,13 @@ fn score_one_pair(
         );
     }
 
-    trace!("Final score {}", score);
+    trace!("Final score {score}");
     score
 }
 
 fn increment_score(msg: &str, increment: Score, target: &mut Score) {
     *target += increment;
-    trace!("{}, score +{} (now {})", msg, increment, target);
+    trace!("{msg}, score +{increment} (now {target})");
 }
 
 fn considered_equal(a: &str, b: &str) -> bool {
@@ -465,21 +450,23 @@ fn format_matrix<T: Display>(
 
     // print header line, e.g. '    t   a   r   g   e   t'
     out.push(' ');
-    for c in target.chars() {
-        out.push_str(&format!("{:>width$}", c, width = indent));
+    for chr in target.chars() {
+        write!(out, "{chr:>indent$}").expect("'write' should not fail when used like this");
     }
     out.push('\n');
 
     // print the rest
     let mut query_it = query.chars().enumerate().peekable();
-    while let Some((query_index, c)) = query_it.next() {
-        out.push(c);
+    while let Some((query_index, chr)) = query_it.next() {
+        out.push(chr);
         for (target_index, _) in target.chars().enumerate() {
-            out.push_str(&format!(
+            write!(
+                out,
                 "{:>width$}",
                 matrix[[query_index, target_index]],
                 width = indent
-            ));
+            )
+            .expect("'write' should not fail when used like this");
         }
 
         if query_it.peek().is_some() {
@@ -492,6 +479,11 @@ fn format_matrix<T: Display>(
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::non_ascii_literal,
+        reason = "Some test cases deliberately include non-ASCII symbols"
+    )]
+
     use super::*;
 
     #[test]

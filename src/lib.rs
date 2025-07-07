@@ -184,9 +184,9 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
         {
             let current_index = [query_index, target_index];
             let left_index = target_index.checked_sub(1).map(|x| [query_index, x]);
-            let diagonal_index = target_index
+            let diagonal_index = query_index
                 .checked_sub(1)
-                .zip(query_index.checked_sub(1))
+                .zip(target_index.checked_sub(1))
                 .map(Into::<[usize; 2]>::into);
 
             let match_sequence_length = diagonal_index

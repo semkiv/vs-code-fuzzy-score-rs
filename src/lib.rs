@@ -6,6 +6,7 @@ use log::{debug, trace};
 use ndarray::Array2;
 
 use std::cmp::Ordering;
+use std::convert::Into;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write as _};
 
 /// Score is used to quantify how good a match is: the higher score the better match.
@@ -182,11 +183,16 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
             .enumerate()
         {
             let current_index = [query_index, target_index];
-            let left_index = (target_index > 0).then(|| [query_index, target_index - 1]);
-            let diagonal_index =
-                (query_index > 0 && target_index > 0).then(|| [query_index - 1, target_index - 1]);
+            let left_index = target_index.checked_sub(1).map(|x| [query_index, x]);
+            let diagonal_index = target_index
+                .checked_sub(1)
+                .zip(query_index.checked_sub(1))
+                .map(Into::<[usize; 2]>::into);
 
-            let match_sequence_length = diagonal_index.map_or(0, |index| matches[index]);
+            let match_sequence_length = diagonal_index
+                .and_then(|idx| matches.get(idx))
+                .copied()
+                .unwrap_or(0);
 
             // If we are not matching on the first query character any more, we only produce a
             // score if we had a score previously for the last query index (by looking at the diagonal score).
@@ -194,7 +200,11 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
             // For example given a target of "ede" and a query of "de",
             // we would otherwise produce a wrong high score
             // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
-            let score = if query_index == 0 || diagonal_index.is_some_and(|idx| scores[idx] != 0) {
+            let score = if query_index == 0
+                || diagonal_index
+                    .and_then(|idx| scores.get(idx))
+                    .is_some_and(|score| *score != 0)
+            {
                 score_one_pair(
                     query_char,
                     target_char,

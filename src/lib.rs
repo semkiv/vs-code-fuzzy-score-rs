@@ -200,11 +200,11 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
             // For example given a target of "ede" and a query of "de",
             // we would otherwise produce a wrong high score
             // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
-            let score = if query_index == 0
-                || diagonal_index
-                    .and_then(|idx| scores.get(idx))
-                    .is_some_and(|score| *score != 0)
-            {
+            #[expect(
+                clippy::indexing_slicing,
+                reason = "If diagonal index is not None, it must be valid, otherwise it a logic error"
+            )]
+            let score = if query_index == 0 || diagonal_index.is_some_and(|idx| scores[idx] != 0) {
                 score_one_pair(
                     query_char,
                     target_char,
@@ -221,8 +221,8 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
             if score > NO_SCORE
                 && (left_index.is_none()
                     || diagonal_index.is_none()
-                    || left_index.is_some_and(|left| {
-                        diagonal_index.is_some_and(|diag| scores[diag] + score >= scores[left])
+                    || left_index.zip(diagonal_index).is_some_and(|(left, diag)| {
+                        scores[diag] + score >= scores[left]
                     }))
             {
                 matches[current_index] = match_sequence_length + 1;

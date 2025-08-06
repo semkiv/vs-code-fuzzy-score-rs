@@ -8,6 +8,7 @@ use ndarray::Array2;
 use std::cmp::Ordering;
 use std::convert::Into;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write as _};
+use std::num::TryFromIntError;
 
 /// Score is used to quantify how good a match is: the higher score the better match.
 ///
@@ -149,6 +150,7 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     compute_fuzzy_match(query, target)
 }
 
+// TODO: make this return Result and report arithmetic (and potentially other) errors if any
 fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     // Build a scorer matrix:
     // The matrix is composed of query q and target t.
@@ -326,10 +328,8 @@ impl MatchBonus {
         8
     }
 
-    fn consecutive(length: usize) -> Score {
-        Score::try_from(length).unwrap_or_else(|_| {
-            panic!("Consecutive match length {length} does not fit into 'Score' type")
-        }) * 5
+    fn consecutive(length: usize) -> Result<Score, TryFromIntError> {
+        Ok(Score::try_from(length)? * 5)
     }
 
     const fn following_separator(separator: &Separator) -> Score {
@@ -421,6 +421,7 @@ fn score_one_pair(
     score
 }
 
+// TODO: make this a method of Score and rename accordingly, e.g. add_with_trace
 fn increment_score(msg: &str, increment: Score, target: &mut Score) {
     *target += increment;
     trace!("{msg}, score +{increment} (now {target})");
@@ -431,6 +432,7 @@ fn considered_equal(a: &str, b: &str) -> bool {
         return true;
     }
 
+    // TODO: is this a good idea for a general-purpose applications?
     // Special case path separators: ignore platform differences
     if a == "/" || a == "\\" {
         return b == "/" || b == "\\";

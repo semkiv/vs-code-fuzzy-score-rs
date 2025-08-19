@@ -1,101 +1,26 @@
-// based on Visual Studio Code fuzzy matching algorithm
+// Based on Visual Studio Code fuzzy matching algorithm
 // see https://github.com/microsoft/vscode/blob/648dbbe9a59ab4cf843d9e37f64153b9f0793c15/src/vs/base/common/fuzzyScorer.ts
+
+pub mod error;
+pub mod fuzzy_match;
+pub mod score;
+
+mod match_bonus;
+mod separator;
+
+use error::Error;
+use fuzzy_match::FuzzyMatch;
+use score::Score;
+use separator::Separator;
 
 use itertools::Itertools as _;
 use log::{debug, trace};
 use ndarray::Array2;
 
-use std::cmp::Ordering;
 use std::convert::Into;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult, Write as _};
-use std::num::TryFromIntError;
+use std::fmt::{Display, Write as _};
 
-/// Score is used to quantify how good a match is: the higher score the better match.
-///
-pub type Score = u32;
-
-/// Represents a fuzzy match result.
-/// Contains the final score as well as the positions of the matching characters.
-///
-#[derive(Clone, Debug)]
-pub struct FuzzyMatch {
-    score: Score,
-    positions: Vec<usize>,
-}
-
-impl FuzzyMatch {
-    /// Can be used to get the final score.
-    /// Score is a metric of how good a match is: the higher the score the better the match.
-    ///
-    /// # Examples:
-    ///
-    /// ```
-    /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz");
-    /// assert_eq!(m.unwrap().score(), 11);
-    /// ```
-    ///
-    #[must_use]
-    pub const fn score(&self) -> Score {
-        self.score
-    }
-
-    /// Can be used to get the positions of the matching characters in the target.
-    ///
-    /// # Examples:
-    ///
-    /// ```
-    /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz");
-    /// assert_eq!(*m.unwrap().positions(), vec![3, 4, 7]);
-    /// ```
-    ///
-    #[must_use]
-    pub const fn positions(&self) -> &Vec<usize> {
-        &self.positions
-    }
-}
-
-impl PartialEq for FuzzyMatch {
-    fn eq(&self, other: &Self) -> bool {
-        self.score.eq(&other.score)
-    }
-}
-
-impl PartialOrd for FuzzyMatch {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for FuzzyMatch {}
-
-impl Ord for FuzzyMatch {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.score.cmp(&other.score)
-    }
-}
-
-impl Display for FuzzyMatch {
-    #[expect(
-        clippy::min_ident_chars,
-        reason = "Corresponds to the name used in the trait"
-    )]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut positions = String::new();
-        let mut pos_itr = self.positions().iter().peekable();
-        while let Some(pos) = pos_itr.next() {
-            positions.push_str(&pos.to_string());
-            if pos_itr.peek().is_some() {
-                positions.push_str(", ");
-            }
-        }
-        write!(
-            f,
-            "FuzzyMatch {{ score: {}, positions: [{}] }}",
-            self.score(),
-            positions
-        )
-    }
-}
+use crate::error::ArithmeticOverflowError;
 
 /// Contains main part of the matching and scoring logic.
 ///
@@ -109,8 +34,8 @@ impl Display for FuzzyMatch {
 /// ```
 /// // there's a match
 /// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz").unwrap();
-/// assert_eq!(m.score(), 11);
-/// assert_eq!(*m.positions(), vec![3, 4, 7]);
+/// assert_eq!(m.score.0, 11);
+/// assert_eq!(*m.positions, vec![3, 4, 7]);
 /// ```
 ///
 /// ```
@@ -126,15 +51,15 @@ impl Display for FuzzyMatch {
 /// ```
 ///
 #[must_use]
-pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
+pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Error> {
     if query.is_empty() {
         debug!("Query is empty");
-        return None;
+        return Ok(None);
     }
 
     if target.is_empty() {
         debug!("Target is empty");
-        return None;
+        return Ok(None);
     }
 
     let target_length = target.chars().count();
@@ -144,14 +69,14 @@ pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
         debug!(
             "Query '{query}' (length {query_length}) is too long for target '{target}' (length {target_length})"
         );
-        return None; // impossible for query to be contained in target
+        return Ok(None); // impossible for query to be contained in target
     }
 
     compute_fuzzy_match(query, target)
 }
 
 // TODO: make this return Result and report arithmetic (and potentially other) errors if any
-fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
+fn compute_fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Error> {
     // Build a scorer matrix:
     // The matrix is composed of query q and target t.
     // For each index we score q[i] with t[i] and compare that with the previous score.
@@ -168,7 +93,7 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     let target_length = target.chars().count();
     let query_length = query.chars().count();
     let mut matches = Array2::zeros([query_length, target_length]);
-    let mut scores = Array2::zeros([query_length, target_length]);
+    let mut scores = Array2::from_elem([query_length, target_length], Score::zero());
 
     for (query_index, query_char) in query.chars().enumerate() {
         for (target_index, (previous_target_char, target_char)) in target
@@ -206,36 +131,42 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
                 clippy::indexing_slicing,
                 reason = "If diagonal index is not None, it must be valid, otherwise it a logic error"
             )]
-            let score = if query_index == 0 || diagonal_index.is_some_and(|idx| scores[idx] != 0) {
+            let score = if query_index == 0
+                || diagonal_index.is_some_and(|idx| scores[idx] != Score::zero())
+            {
                 score_one_pair(
                     query_char,
                     target_char,
                     previous_target_char,
                     match_sequence_length,
-                )
+                )?
             } else {
-                NO_SCORE
+                Score::zero()
             };
 
-            // We have a score and it's equal or larger than the left score.
+            // We have a score and it's equal or larger than the left score (if one exists).
             // Match: sequence continues growing from previous diag value.
             // Score: increases by diag score value.
-            if score > NO_SCORE
-                && (left_index.is_none()
-                    || diagonal_index.is_none()
-                    || left_index.zip(diagonal_index).is_some_and(|(left, diag)| {
-                        scores[diag] + score >= scores[left]
-                    }))
+            if score > Score::zero()
+                && (left_index
+                    .zip(diagonal_index)
+                    .map_or(Ok(true), |(left, diag)| {
+                        (scores[diag] + score).map(|sum| sum >= scores[left])
+                    })
+                    .map_err(ArithmeticOverflowError::from)?)
             {
                 matches[current_index] = match_sequence_length + 1;
-                scores[current_index] = diagonal_index.map_or(score, |index| scores[index] + score);
+                // TODO: simplify?
+                scores[current_index] = diagonal_index
+                    .map_or(Ok(score), |index| scores[index] + score)
+                    .map_err(ArithmeticOverflowError::from)?;
             }
             // We either have no score or the score is lower than the left score.
             // Match: reset to 0.
             // Score: pick up from left hand side.
             else {
                 matches[current_index] = 0;
-                scores[current_index] = left_index.map_or(NO_SCORE, |index| scores[index]);
+                scores[current_index] = left_index.map_or(Score::zero(), |index| scores[index]);
             }
         }
     }
@@ -272,82 +203,14 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
         "Target: '{target}', query: '{query}', final score: {final_score}, matching positions: {positions:#?}"
     );
 
-    if final_score == NO_SCORE {
-        return None;
+    if final_score == Score::zero() {
+        return Ok(None);
     }
 
-    Some(FuzzyMatch {
+    Ok(Some(FuzzyMatch {
         score: final_score,
         positions,
-    })
-}
-
-const NO_SCORE: Score = 0;
-
-enum Separator {
-    Backslash,
-    Colon,
-    Dash,
-    Dot,
-    DoubleQuote,
-    SingleQuote,
-    Slash,
-    Space,
-    Underscore,
-}
-
-impl Separator {
-    const fn from_char(chr: char) -> Option<Self> {
-        match chr {
-            '\\' => Some(Self::Backslash),
-            ':' => Some(Self::Colon),
-            '-' => Some(Self::Dash),
-            '.' => Some(Self::Dot),
-            '"' => Some(Self::DoubleQuote),
-            '\'' => Some(Self::SingleQuote),
-            '/' => Some(Self::Slash),
-            ' ' => Some(Self::Space),
-            '_' => Some(Self::Underscore),
-            _ => None,
-        }
-    }
-}
-
-struct MatchBonus;
-
-impl MatchBonus {
-    const fn base() -> Score {
-        1
-    }
-
-    const fn letter_case() -> Score {
-        1
-    }
-
-    const fn word_start() -> Score {
-        8
-    }
-
-    fn consecutive(length: usize) -> Result<Score, TryFromIntError> {
-        Ok(Score::try_from(length)? * 5)
-    }
-
-    const fn following_separator(separator: &Separator) -> Score {
-        match separator {
-            Separator::Slash | Separator::Backslash => 5, // prefer path separators...
-            Separator::Underscore
-            | Separator::Dash
-            | Separator::Dot
-            | Separator::Space
-            | Separator::SingleQuote
-            | Separator::DoubleQuote
-            | Separator::Colon => 4, // ...over other separators
-        }
-    }
-
-    const fn camel_case() -> Score {
-        2
-    }
+    }))
 }
 
 fn score_one_pair(
@@ -355,76 +218,62 @@ fn score_one_pair(
     target_char: char,
     previous_target_char: Option<char>,
     match_sequence_length: usize,
-) -> Score {
+) -> Result<Score, Error> {
     let query_char_lowercase = query_char.to_lowercase().to_string();
     let target_char_lowercase = target_char.to_lowercase().to_string();
 
     // No match - no score
     if !considered_equal(&query_char_lowercase, &target_char_lowercase) {
-        trace!("'{query_char}' does not match '{target_char}', score {NO_SCORE}");
-        return NO_SCORE;
+        trace!(
+            "'{query_char}' does not match '{target_char}', score {}",
+            Score::zero()
+        );
+        return Ok(Score::zero());
     }
 
-    let mut score = NO_SCORE;
+    let mut score = Score::zero();
     // Character match bonus
-    increment_score(
-        &format!("'{query_char}' matches '{target_char}'"),
-        MatchBonus::base(),
-        &mut score,
-    );
+    score.traced_add_assign(&format!("'{query_char}' matches '{target_char}'"), match_bonus::base()).map_err(ArithmeticOverflowError::from)?;
 
     // Consecutive match bonus
     if match_sequence_length > 0 {
-        increment_score(
-            &format!("Consecutive match of length {match_sequence_length}"),
-            MatchBonus::consecutive(match_sequence_length),
-            &mut score,
-        );
+        score.traced_add_assign(&format!("Consecutive match of length {match_sequence_length}"), match_bonus::consecutive(match_sequence_length)?).map_err(ArithmeticOverflowError::from)?;
     }
 
     // Same case bonus
     if query_char == target_char {
-        increment_score("Same case", MatchBonus::letter_case(), &mut score);
+        score.traced_add_assign("Same case", match_bonus::letter_case()).map_err(ArithmeticOverflowError::from)?;
     }
 
     if let Some(previous_target_char) = previous_target_char {
         if let Some(separator) = Separator::from_char(previous_target_char) {
             // After a separator bonus
-            increment_score(
+            score.traced_add_assign(
                 "Matches after a separator",
-                MatchBonus::following_separator(&separator),
-                &mut score,
-            );
+                match_bonus::following_separator(&separator),
+            ).map_err(ArithmeticOverflowError::from)?;
         } else {
             // Inside word upper case bonus (camel case). We only give this bonus if we're not in a contiguous sequence.
             // For example:
             // NPE => NullPointerException = boost
             // HTTP => HTTP = no boost
             if target_char.is_uppercase() && match_sequence_length == 0 {
-                increment_score(
+                score.traced_add_assign(
                     "Matches camel case inside a word",
-                    MatchBonus::camel_case(),
-                    &mut score,
-                );
+                    match_bonus::camel_case(),
+                ).map_err(ArithmeticOverflowError::from)?;
             }
         }
     } else {
         // Start of word bonus
-        increment_score(
+        score.traced_add_assign(
             "Matches beginning of the word",
-            MatchBonus::word_start(),
-            &mut score,
-        );
+            match_bonus::word_start()
+        ).map_err(ArithmeticOverflowError::from)?;
     }
 
     trace!("Final score {score}");
-    score
-}
-
-// TODO: make this a method of Score and rename accordingly, e.g. add_with_trace
-fn increment_score(msg: &str, increment: Score, target: &mut Score) {
-    *target += increment;
-    trace!("{msg}, score +{increment} (now {target})");
+    Ok(score)
 }
 
 fn considered_equal(a: &str, b: &str) -> bool {
@@ -501,27 +350,27 @@ mod tests {
     #[test]
     fn sanity_query_is_empty() {
         let result = fuzzy_match("", "target");
-        assert!(result.is_none());
+        assert!(result.unwrap().is_none());
     }
 
     #[test]
     fn sanity_target_is_empty() {
         let result = fuzzy_match("query", "");
-        assert!(result.is_none());
+        assert!(result.unwrap().is_none());
     }
 
     #[test]
     fn sanity_target_is_too_short() {
         let result = fuzzy_match("longer", "short");
-        assert!(result.is_none());
+        assert!(result.unwrap().is_none());
     }
 
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1
     fn scoring_simple_match() {
-        let result = fuzzy_match("C", "abc").unwrap();
-        assert_eq!(result.score(), 1);
-        assert_eq!(*result.positions(), vec![2]);
+        let result = fuzzy_match("C", "abc").unwrap().unwrap();
+        assert_eq!(result.score.0, 1);
+        assert_eq!(*result.positions, vec![2]);
     }
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1
@@ -529,41 +378,41 @@ mod tests {
     // 'E' (query[2]) matches 'e' (target[4]) => score 1 + bonus for consecutive match of length 2 (2 * 5) = 11
     // total score: 1 + 6 + 11 = 18
     fn scoring_consecutive_match() {
-        let result = fuzzy_match("CDE", "abcde").unwrap();
-        assert_eq!(result.score(), 18);
-        assert_eq!(*result.positions(), vec![2, 3, 4]);
+        let result = fuzzy_match("CDE", "abcde").unwrap().unwrap();
+        assert_eq!(result.score.0, 18);
+        assert_eq!(*result.positions, vec![2, 3, 4]);
     }
 
     #[test]
     // 'c' (query[0]) matches 'c' (target[2]) => score 1 + 1 bonus for the same case = 2
     fn scoring_same_case_match() {
-        let result = fuzzy_match("c", "abc").unwrap();
-        assert_eq!(result.score(), 2);
-        assert_eq!(*result.positions(), vec![2]);
+        let result = fuzzy_match("c", "abc").unwrap().unwrap();
+        assert_eq!(result.score.0, 2);
+        assert_eq!(*result.positions, vec![2]);
     }
 
     #[test]
     // 'A' (query[0]) matches 'a' (target[0]) => score 1 + 8 bonus for matching beginning of the word = 9
     fn scoring_word_start_match() {
-        let result = fuzzy_match("A", "abc").unwrap();
-        assert_eq!(result.score(), 9);
-        assert_eq!(*result.positions(), vec![0]);
+        let result = fuzzy_match("A", "abc").unwrap().unwrap();
+        assert_eq!(result.score.0, 9);
+        assert_eq!(*result.positions, vec![0]);
     }
 
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1 + 5 bonus for matching after a separator = 6
     fn scoring_after_slash_match() {
-        let result = fuzzy_match("C", "a/c").unwrap();
-        assert_eq!(result.score(), 6);
-        assert_eq!(*result.positions(), vec![2]);
+        let result = fuzzy_match("C", "a/c").unwrap().unwrap();
+        assert_eq!(result.score.0, 6);
+        assert_eq!(*result.positions, vec![2]);
     }
 
     #[test]
     // 'C' (query[0]) matches 'c' (target[2]) => score 1 + 4 bonus for matching after a separator = 6
     fn scoring_after_space_match() {
-        let result = fuzzy_match("C", "a c").unwrap();
-        assert_eq!(result.score(), 5);
-        assert_eq!(*result.positions(), vec![2]);
+        let result = fuzzy_match("C", "a c").unwrap().unwrap();
+        assert_eq!(result.score.0, 5);
+        assert_eq!(*result.positions, vec![2]);
     }
 
     #[test]
@@ -575,9 +424,9 @@ mod tests {
     //     2 bonus for matching camel case = 4
     // total score: 10 + 4 + 4 = 18
     fn scoring_camel_case_match() {
-        let result = fuzzy_match("NPE", "NullPointerException").unwrap();
-        assert_eq!(result.score(), 18);
-        assert_eq!(*result.positions(), vec![0, 4, 11]);
+        let result = fuzzy_match("NPE", "NullPointerException").unwrap().unwrap();
+        assert_eq!(result.score.0, 18);
+        assert_eq!(*result.positions, vec![0, 4, 11]);
     }
 
     #[test]
@@ -592,9 +441,9 @@ mod tests {
     // total score: 10 + 7 + 12 + 17 = 46
     // camel case bonus must not be activated
     fn scoring_camel_case_match_no_boost() {
-        let result = fuzzy_match("HTTP", "HTTP").unwrap();
-        assert_eq!(result.score(), 46);
-        assert_eq!(*result.positions(), vec![0, 1, 2, 3]);
+        let result = fuzzy_match("HTTP", "HTTP").unwrap().unwrap();
+        assert_eq!(result.score.0, 46);
+        assert_eq!(*result.positions, vec![0, 1, 2, 3]);
     }
 
     // 'd' (query[0]) matches 'd' (target[1]) => score 1 + 1 bonus for matching the case = 2
@@ -604,47 +453,47 @@ mod tests {
     // de[1] must not receive any bonus for matching ede[0]
     #[test]
     fn scoring_query_matches_target_in_sequence() {
-        let result = fuzzy_match("de", "ede").unwrap();
-        assert_eq!(result.score(), 9);
-        assert_eq!(*result.positions(), vec![1, 2]);
+        let result = fuzzy_match("de", "ede").unwrap().unwrap();
+        assert_eq!(result.score.0, 9);
+        assert_eq!(*result.positions, vec![1, 2]);
     }
 
     #[test]
     fn scoring_typo_in_query() {
-        let result = fuzzy_match("contguous", "contiguous").unwrap();
-        assert_eq!(result.score(), 106);
-        assert_eq!(*result.positions(), vec![0, 1, 2, 3, 5, 6, 7, 8, 9]);
+        let result = fuzzy_match("contguous", "contiguous").unwrap().unwrap();
+        assert_eq!(result.score.0, 106);
+        assert_eq!(*result.positions, vec![0, 1, 2, 3, 5, 6, 7, 8, 9]);
     }
 
     #[test]
     fn non_ascii_chars_cyrillic() {
-        let result = fuzzy_match("тест", "Текст").unwrap();
-        assert_eq!(result.score(), 25);
-        assert_eq!(*result.positions(), vec![0, 1, 3, 4]);
+        let result = fuzzy_match("тест", "Текст").unwrap().unwrap();
+        assert_eq!(result.score.0, 25);
+        assert_eq!(*result.positions, vec![0, 1, 3, 4]);
     }
 
     #[test]
     fn non_ascii_chars_chinese() {
-        let result = fuzzy_match("打电", "打电动").unwrap();
-        assert_eq!(result.score(), 17);
-        assert_eq!(*result.positions(), vec![0, 1]);
+        let result = fuzzy_match("打电", "打电动").unwrap().unwrap();
+        assert_eq!(result.score.0, 17);
+        assert_eq!(*result.positions, vec![0, 1]);
     }
 
     #[test]
     fn non_ascii_chars_emojis() {
-        let result = fuzzy_match("🐼🐣🦀🦠", "🐲🐼🐣🦀🦞🦠").unwrap();
-        assert_eq!(result.score(), 23);
-        assert_eq!(*result.positions(), vec![1, 2, 3, 5]);
+        let result = fuzzy_match("🐼🐣🦀🦠", "🐲🐼🐣🦀🦞🦠").unwrap().unwrap();
+        assert_eq!(result.score.0, 23);
+        assert_eq!(*result.positions, vec![1, 2, 3, 5]);
     }
 
     #[test]
     fn comparison_ne() {
         let fm1 = FuzzyMatch {
-            score: 10,
+            score: Score(10),
             positions: vec![0, 1],
         };
         let fm2 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         assert_ne!(fm1, fm2);
@@ -653,11 +502,11 @@ mod tests {
     #[test]
     fn comparison_eq() {
         let fm1 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         let fm2 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![0, 1],
         };
         assert_eq!(fm1, fm2);
@@ -666,11 +515,11 @@ mod tests {
     #[test]
     fn comparison_lt() {
         let fm1 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         let fm2 = FuzzyMatch {
-            score: 10,
+            score: Score(10),
             positions: vec![0, 1],
         };
         assert!(fm1 < fm2);
@@ -679,11 +528,11 @@ mod tests {
     #[test]
     fn comparison_gt() {
         let fm1 = FuzzyMatch {
-            score: 10,
+            score: Score(10),
             positions: vec![0, 1],
         };
         let fm2 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         assert!(fm1 > fm2);
@@ -692,11 +541,11 @@ mod tests {
     #[test]
     fn comparison_le() {
         let fm1 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         let fm2 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![0, 1],
         };
         assert!(fm1 <= fm2);
@@ -705,11 +554,11 @@ mod tests {
     #[test]
     fn comparison_ge() {
         let fm1 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![2, 5, 8],
         };
         let fm2 = FuzzyMatch {
-            score: 1,
+            score: Score(1),
             positions: vec![0, 1],
         };
         assert!(fm1 >= fm2);
@@ -719,30 +568,30 @@ mod tests {
     fn comparison_sort() {
         let mut unsorted = vec![
             FuzzyMatch {
-                score: 3,
+                score: Score(3),
                 positions: vec![2, 5, 8],
             },
             FuzzyMatch {
-                score: 1,
+                score: Score(1),
                 positions: vec![0, 1, 5, 7],
             },
             FuzzyMatch {
-                score: 2,
+                score: Score(2),
                 positions: vec![0, 1],
             },
         ];
 
         let expected = vec![
             FuzzyMatch {
-                score: 1,
+                score: Score(1),
                 positions: vec![0, 1, 5, 7],
             },
             FuzzyMatch {
-                score: 2,
+                score: Score(2),
                 positions: vec![0, 1],
             },
             FuzzyMatch {
-                score: 3,
+                score: Score(3),
                 positions: vec![2, 5, 8],
             },
         ];

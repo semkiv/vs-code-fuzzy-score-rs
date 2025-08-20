@@ -152,14 +152,12 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, 
                     .zip(diagonal_index)
                     .map_or(Ok(true), |(left, diag)| {
                         (scores[diag] + score).map(|sum| sum >= scores[left])
-                    })
-                    .map_err(ArithmeticOverflowError::from)?)
+                    })?)
             {
                 matches[current_index] = match_sequence_length + 1;
                 // TODO: simplify?
-                scores[current_index] = diagonal_index
-                    .map_or(Ok(score), |index| scores[index] + score)
-                    .map_err(ArithmeticOverflowError::from)?;
+                scores[current_index] =
+                    diagonal_index.map_or(Ok(score), |index| scores[index] + score)?;
             }
             // We either have no score or the score is lower than the left score.
             // Match: reset to 0.
@@ -233,16 +231,22 @@ fn score_one_pair(
 
     let mut score = Score::zero();
     // Character match bonus
-    score.traced_add_assign(&format!("'{query_char}' matches '{target_char}'"), match_bonus::base()).map_err(ArithmeticOverflowError::from)?;
+    score.traced_add_assign(
+        &format!("'{query_char}' matches '{target_char}'"),
+        match_bonus::base(),
+    )?;
 
     // Consecutive match bonus
     if match_sequence_length > 0 {
-        score.traced_add_assign(&format!("Consecutive match of length {match_sequence_length}"), match_bonus::consecutive(match_sequence_length)?).map_err(ArithmeticOverflowError::from)?;
+        score.traced_add_assign(
+            &format!("Consecutive match of length {match_sequence_length}"),
+            match_bonus::consecutive(match_sequence_length)?,
+        )?;
     }
 
     // Same case bonus
     if query_char == target_char {
-        score.traced_add_assign("Same case", match_bonus::letter_case()).map_err(ArithmeticOverflowError::from)?;
+        score.traced_add_assign("Same case", match_bonus::letter_case())?;
     }
 
     if let Some(previous_target_char) = previous_target_char {
@@ -251,7 +255,7 @@ fn score_one_pair(
             score.traced_add_assign(
                 "Matches after a separator",
                 match_bonus::following_separator(&separator),
-            ).map_err(ArithmeticOverflowError::from)?;
+            )?;
         } else {
             // Inside word upper case bonus (camel case). We only give this bonus if we're not in a contiguous sequence.
             // For example:
@@ -261,15 +265,12 @@ fn score_one_pair(
                 score.traced_add_assign(
                     "Matches camel case inside a word",
                     match_bonus::camel_case(),
-                ).map_err(ArithmeticOverflowError::from)?;
+                )?;
             }
         }
     } else {
         // Start of word bonus
-        score.traced_add_assign(
-            "Matches beginning of the word",
-            match_bonus::word_start()
-        ).map_err(ArithmeticOverflowError::from)?;
+        score.traced_add_assign("Matches beginning of the word", match_bonus::word_start())?;
     }
 
     trace!("Final score {score}");

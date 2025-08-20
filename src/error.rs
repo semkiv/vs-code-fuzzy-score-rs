@@ -1,61 +1,44 @@
+use crate::match_bonus::error::Error as MatchBonusError;
 use crate::score::Score;
 
-use std::fmt::{Debug, Display};
-use std::num::TryFromIntError;
+use std::error::Error as StdError;
+use std::fmt::{Debug, Display, Formatter, Result};
 
 #[derive(Clone, Debug)]
 pub enum Error {
     ArithmeticOverflow(ArithmeticOverflowError),
-    SequenceTooLong(SequenceTooLongErrorContext),
+    MatchBonusError(MatchBonusError),
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum ArithmeticOverflowError {
-    Add(AddOverflowError),
-    Mul(MulOverflowError),
+    Add(Operands<Score, Score>),
+    Mul(Operands<Score, u32>),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct AddOverflowError {
-    pub lhs: Score,
-    pub rhs: Score,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct MulOverflowError {
-    pub score: Score,
-    pub factor: u32,
-}
-
-// TODO: move the fields into the error struct directly
-#[derive(Clone, Debug)]
-pub struct SequenceTooLongErrorContext {
-    pub head: String,
-    pub tail: String,
-    pub length: usize,
-    pub source: TryFromIntError,
-}
+pub struct Operands<L, R>(pub L, pub R);
 
 impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Error::ArithmeticOverflow(error) => Display::fmt(&error, f),
-            Error::SequenceTooLong(context) => {
-                write!(
-                    f,
-                    "Sequence '{}...{}' (length {}) is too long to be scored",
-                    context.head, context.tail, context.length
-                )
+            Self::ArithmeticOverflow(err) => {
+                write!(f, "Arithmetic overflow: ")?;
+                Display::fmt(&err, f)
+            }
+            Self::MatchBonusError(err) => {
+                write!(f, "Error calculating match bonus: ",)?;
+                Display::fmt(&err, f)
             }
         }
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Error::ArithmeticOverflow(error) => Some(error),
-            Error::SequenceTooLong(context) => Some(&context.source),
+            Self::ArithmeticOverflow(err) => Some(err),
+            Self::MatchBonusError(err) => Some(&err.source_error),
         }
     }
 }
@@ -66,77 +49,25 @@ impl From<ArithmeticOverflowError> for Error {
     }
 }
 
+impl From<MatchBonusError> for Error {
+    fn from(value: MatchBonusError) -> Self {
+        Self::MatchBonusError(value)
+    }
+}
+
 impl Display for ArithmeticOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Arithmetic overflow occurred when ")?;
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            ArithmeticOverflowError::Add(context) => {
-                write!(f, "adding {} to {}", context.lhs, context.rhs)
+            Self::Add(Operands(lhs, rhs)) => {
+                write!(f, "Adding {} to {} would overflow", lhs, rhs)
             }
-            ArithmeticOverflowError::Mul(context) => {
-                write!(f, "multiplying {} by {}", context.score, context.factor)
+            Self::Mul(Operands(score, factor)) => {
+                write!(f, "Multiplying {} by {} would overflow", score, factor)
             }
         }
     }
 }
 
-impl std::error::Error for ArithmeticOverflowError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ArithmeticOverflowError::Add(err) => Some(err),
-            ArithmeticOverflowError::Mul(err) => Some(err),
-        }
-    }
-}
-
-impl From<AddOverflowError> for ArithmeticOverflowError {
-    fn from(value: AddOverflowError) -> Self {
-        ArithmeticOverflowError::Add(value)
-    }
-}
-
-impl From<MulOverflowError> for ArithmeticOverflowError {
-    fn from(value: MulOverflowError) -> Self {
-        ArithmeticOverflowError::Mul(value)
-    }
-}
-
-impl Display for AddOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Arithmetic overflow occurred when adding {} to {}",
-            self.lhs, self.rhs
-        )
-    }
-}
-
-impl std::error::Error for AddOverflowError {}
-
-impl Display for MulOverflowError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Arithmetic overflow occurred when multiplying {} by {}",
-            self.score, self.factor
-        )
-    }
-}
-
-impl std::error::Error for MulOverflowError {}
-
-impl SequenceTooLongErrorContext {
-    pub fn new(seq: &str, err: TryFromIntError) -> Self {
-        const HEAD_LENGTH: usize = 10;
-        const TAIL_LENGTH: usize = 10;
-
-        Self {
-            head: seq.chars().take(HEAD_LENGTH).collect(),
-            tail: seq.chars().rev().take(TAIL_LENGTH).collect(),
-            length: seq.len(),
-            source: err,
-        }
-    }
-}
+impl StdError for ArithmeticOverflowError {}
 
 // TODO: Docs, Tests

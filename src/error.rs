@@ -20,6 +20,10 @@ pub enum ArithmeticOverflowError {
 pub struct Operands<L, R>(pub L, pub R);
 
 impl Display for Error {
+    #[expect(
+        clippy::min_ident_chars,
+        reason = "Corresponds to the name used in the trait"
+    )]
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             Self::ArithmeticOverflow(err) => {
@@ -56,13 +60,17 @@ impl From<MatchBonusError> for Error {
 }
 
 impl Display for ArithmeticOverflowError {
+    #[expect(
+        clippy::min_ident_chars,
+        reason = "Corresponds to the name used in the trait"
+    )]
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             Self::Add(Operands(lhs, rhs)) => {
-                write!(f, "Adding {} to {} would overflow", lhs, rhs)
+                write!(f, "Adding {lhs} to {rhs} would overflow")
             }
             Self::Mul(Operands(score, factor)) => {
-                write!(f, "Multiplying {} by {} would overflow", score, factor)
+                write!(f, "Multiplying {score} by {factor} would overflow")
             }
         }
     }

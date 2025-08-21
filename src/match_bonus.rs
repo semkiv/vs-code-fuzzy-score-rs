@@ -7,6 +7,7 @@ use crate::score::{PlainScore, Score};
 use crate::separator::Separator;
 
 use std::convert::Into;
+use std::ops::Mul;
 
 pub const fn base() -> Score {
     const BASE_BONUS: PlainScore = 1;
@@ -47,11 +48,12 @@ pub const fn camel_case() -> Score {
 pub fn consecutive(length: usize) -> Result<Score, SuperError> {
     const CONSECUTIVE_BONUS_MULTIPLIER: u32 = 5;
 
-    (Score(PlainScore::try_from(length).map_err(|err| Error {
+    let plain_score = PlainScore::try_from(length).map_err(|err| Error {
         sequence_length: length,
         source_error: err,
-    })?) * CONSECUTIVE_BONUS_MULTIPLIER)
-        .map_err(Into::into) // TODO: this kinda smells
+    })?;
+
+    Mul::mul(Score(plain_score), CONSECUTIVE_BONUS_MULTIPLIER).map_err(Into::into)
 }
 
 // TODO: Docs, Tests

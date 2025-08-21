@@ -22,12 +22,24 @@ impl Score {
         Self(0)
     }
 
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        *self == Self::zero()
+    }
+
+    /// Adds a [`Score`] to the current one while printing a trace message.
+    /// The message is sent through the [`trace`] macro,
+    /// so whether it is actually printed or not depends on the logging options.
+    ///
+    /// # Errors
+    ///   * [`ArithmeticOverflowError`] if an arithmetic overflow occurs.
+    ///
     pub fn traced_add_assign(
         &mut self,
         msg: &str,
         other: Self,
     ) -> Result<(), ArithmeticOverflowError> {
-        *self = (*self + other)?;
+        *self = Add::add(*self, other)?;
         trace!("{msg}, score +{other} (now {self})");
         Ok(())
     }
@@ -56,6 +68,10 @@ impl Mul<u32> for Score {
 }
 
 impl Display for Score {
+    #[expect(
+        clippy::min_ident_chars,
+        reason = "Corresponds to the name used in the trait"
+    )]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         self.0.fmt(f)
     }

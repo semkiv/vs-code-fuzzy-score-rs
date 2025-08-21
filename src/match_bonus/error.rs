@@ -8,6 +8,10 @@ pub struct Error {
     pub source_error: TryFromIntError,
 }
 
+#[expect(
+    clippy::min_ident_chars,
+    reason = "Corresponds to the name used in the trait"
+)]
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(

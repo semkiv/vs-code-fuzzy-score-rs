@@ -19,8 +19,7 @@ use ndarray::Array2;
 
 use std::convert::Into;
 use std::fmt::{Display, Write as _};
-
-use crate::error::ArithmeticOverflowError;
+use std::ops::Add;
 
 /// Contains main part of the matching and scoring logic.
 ///
@@ -29,7 +28,10 @@ use crate::error::ArithmeticOverflowError;
 /// and the positions of the matching characters in `target`, [`None`] otherwise.
 /// Also returns [`None`] if either `query` or `target` is empty or `target` is shorter than `query`.
 ///
-/// # Examples:
+/// # Errors
+///   * [`Error`] if a score calculation error occurs. See the error variants for more details.
+///
+/// # Examples
 ///
 /// ```
 /// // there's a match
@@ -50,7 +52,6 @@ use crate::error::ArithmeticOverflowError;
 /// assert!(m.is_none());
 /// ```
 ///
-#[must_use]
 pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Error> {
     if query.is_empty() {
         debug!("Query is empty");
@@ -129,7 +130,7 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, 
             // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
             #[expect(
                 clippy::indexing_slicing,
-                reason = "If diagonal index is not None, it must be valid, otherwise it a logic error"
+                reason = "If diagonal index is not None, it must be valid, otherwise it's a logic error"
             )]
             let score = if query_index == 0
                 || diagonal_index.is_some_and(|idx| scores[idx] != Score::zero())
@@ -151,7 +152,7 @@ fn compute_fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, 
                 && (left_index
                     .zip(diagonal_index)
                     .map_or(Ok(true), |(left, diag)| {
-                        (scores[diag] + score).map(|sum| sum >= scores[left])
+                        Add::add(scores[diag], score).map(|sum| sum >= scores[left])
                     })?)
             {
                 matches[current_index] = match_sequence_length + 1;

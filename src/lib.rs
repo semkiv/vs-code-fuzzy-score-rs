@@ -8,7 +8,7 @@ mod details;
 mod errors;
 
 use fuzzy_match::FuzzyMatch;
-use errors::ScoringError;
+use errors::FuzzyScoreError;
 
 use log::debug;
 
@@ -43,7 +43,7 @@ use log::debug;
 /// assert!(m.is_none());
 /// ```
 ///
-pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, ScoringError> {
+pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, FuzzyScoreError> {
     if query.is_empty() {
         debug!("Query is empty");
         return Ok(None);

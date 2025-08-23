@@ -8,12 +8,12 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result};
 
 #[derive(Debug)]
-pub enum ScoringError {
+pub enum FuzzyScoreError {
     ArithmeticOverflow(ArithmeticOverflowError),
     MatchBonusError(MatchBonusError),
 }
 
-impl Display for ScoringError {
+impl Display for FuzzyScoreError {
     #[expect(
         clippy::min_ident_chars,
         reason = "Corresponds to the name used in the trait"
@@ -32,7 +32,7 @@ impl Display for ScoringError {
     }
 }
 
-impl Error for ScoringError {
+impl Error for FuzzyScoreError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ArithmeticOverflow(err) => Some(err),
@@ -41,13 +41,13 @@ impl Error for ScoringError {
     }
 }
 
-impl From<ArithmeticOverflowError> for ScoringError {
+impl From<ArithmeticOverflowError> for FuzzyScoreError {
     fn from(value: ArithmeticOverflowError) -> Self {
         Self::ArithmeticOverflow(value)
     }
 }
 
-impl From<MatchBonusError> for ScoringError {
+impl From<MatchBonusError> for FuzzyScoreError {
     fn from(value: MatchBonusError) -> Self {
         Self::MatchBonusError(value)
     }

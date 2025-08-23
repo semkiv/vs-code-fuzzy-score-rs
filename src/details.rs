@@ -4,7 +4,7 @@ mod separator;
 use separator::Separator;
 
 use crate::FuzzyMatch;
-use crate::errors::ScoringError;
+use crate::errors::FuzzyScoreError;
 use crate::errors::arithmetic_overflow_error::ArithmeticOverflowError;
 use crate::errors::arithmetic_overflow_error::operands::AddOperands;
 use crate::score::Score;
@@ -30,7 +30,7 @@ pub fn compute_fuzzy_match(
     query_length: usize,
     target: &str,
     target_length: usize,
-) -> Result<Option<FuzzyMatch>, ScoringError> {
+) -> Result<Option<FuzzyMatch>, FuzzyScoreError> {
     // Build a scorer matrix:
     let matrix = build_scorer_matrix(query, target)?;
 
@@ -91,7 +91,7 @@ pub fn compute_fuzzy_match(
     }))
 }
 
-fn build_scorer_matrix(query: &str, target: &str) -> Result<ScorerMatrix, ScoringError> {
+fn build_scorer_matrix(query: &str, target: &str) -> Result<ScorerMatrix, FuzzyScoreError> {
     // The matrix is composed of query q and target t.
     // For each index we score q[i] with t[i] and compare that with the previous score.
     // If the score is equal or larger, we keep the match.
@@ -207,7 +207,7 @@ fn score_one_pair(
     target_char: char,
     previous_target_char: Option<char>,
     match_sequence_length: usize,
-) -> Result<Score, ScoringError> {
+) -> Result<Score, FuzzyScoreError> {
     let query_char_lowercase = query_char.to_lowercase().to_string();
     let target_char_lowercase = target_char.to_lowercase().to_string();
 

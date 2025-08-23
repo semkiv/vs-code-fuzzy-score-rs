@@ -1,25 +1,19 @@
-use crate::match_bonus::error::Error as MatchBonusError;
-use crate::score::Score;
+pub mod arithmetic_overflow_error;
+pub mod match_bonus_error;
+
+use arithmetic_overflow_error::ArithmeticOverflowError;
+use match_bonus_error::MatchBonusError;
 
 use std::error::Error as StdError;
 use std::fmt::{Debug, Display, Formatter, Result};
 
-#[derive(Clone, Debug)]
-pub enum Error {
+#[derive(Debug)]
+pub enum ScoringError {
     ArithmeticOverflow(ArithmeticOverflowError),
     MatchBonusError(MatchBonusError),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ArithmeticOverflowError {
-    Add(Operands<Score, Score>),
-    Mul(Operands<Score, u32>),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Operands<L, R>(pub L, pub R);
-
-impl Display for Error {
+impl Display for ScoringError {
     #[expect(
         clippy::min_ident_chars,
         reason = "Corresponds to the name used in the trait"
@@ -38,7 +32,7 @@ impl Display for Error {
     }
 }
 
-impl StdError for Error {
+impl StdError for ScoringError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::ArithmeticOverflow(err) => Some(err),
@@ -47,35 +41,16 @@ impl StdError for Error {
     }
 }
 
-impl From<ArithmeticOverflowError> for Error {
+impl From<ArithmeticOverflowError> for ScoringError {
     fn from(value: ArithmeticOverflowError) -> Self {
         Self::ArithmeticOverflow(value)
     }
 }
 
-impl From<MatchBonusError> for Error {
+impl From<MatchBonusError> for ScoringError {
     fn from(value: MatchBonusError) -> Self {
         Self::MatchBonusError(value)
     }
 }
-
-impl Display for ArithmeticOverflowError {
-    #[expect(
-        clippy::min_ident_chars,
-        reason = "Corresponds to the name used in the trait"
-    )]
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            Self::Add(Operands(lhs, rhs)) => {
-                write!(f, "Adding {lhs} to {rhs} would overflow")
-            }
-            Self::Mul(Operands(score, factor)) => {
-                write!(f, "Multiplying {score} by {factor} would overflow")
-            }
-        }
-    }
-}
-
-impl StdError for ArithmeticOverflowError {}
 
 // TODO: Docs, Tests

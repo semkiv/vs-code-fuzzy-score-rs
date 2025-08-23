@@ -1,25 +1,16 @@
 // Based on Visual Studio Code fuzzy matching algorithm
 // see https://github.com/microsoft/vscode/blob/648dbbe9a59ab4cf843d9e37f64153b9f0793c15/src/vs/base/common/fuzzyScorer.ts
 
-pub mod error;
 pub mod fuzzy_match;
 pub mod score;
 
-mod match_bonus;
-mod separator;
+mod details;
+mod errors;
 
-use error::Error;
 use fuzzy_match::FuzzyMatch;
-use score::Score;
-use separator::Separator;
+use errors::ScoringError;
 
-use itertools::Itertools as _;
-use log::{debug, trace};
-use ndarray::Array2;
-
-use std::convert::Into;
-use std::fmt::{Display, Write as _};
-use std::ops::Add;
+use log::debug;
 
 /// Contains main part of the matching and scoring logic.
 ///
@@ -52,7 +43,7 @@ use std::ops::Add;
 /// assert!(m.is_none());
 /// ```
 ///
-pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Error> {
+pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, ScoringError> {
     if query.is_empty() {
         debug!("Query is empty");
         return Ok(None);
@@ -73,271 +64,7 @@ pub fn fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Erro
         return Ok(None); // impossible for query to be contained in target
     }
 
-    compute_fuzzy_match(query, target)
-}
-
-// TODO: make this return Result and report arithmetic (and potentially other) errors if any
-fn compute_fuzzy_match(query: &str, target: &str) -> Result<Option<FuzzyMatch>, Error> {
-    // Build a scorer matrix:
-    // The matrix is composed of query q and target t.
-    // For each index we score q[i] with t[i] and compare that with the previous score.
-    // If the score is equal or larger, we keep the match.
-    // In addition to the score, we also keep the length of the consecutive matches to use as boost for the score.
-    //
-    //      t   a   r   g   e   t
-    //  q   X   X   X   X   X   X
-    //  u   X   X   X   X   X   X
-    //  e   X   X   X   X   X   X
-    //  r   X   X   X   X   X   X
-    //  y   X   X   X   X   X   X
-    //
-    let target_length = target.chars().count();
-    let query_length = query.chars().count();
-    let mut matches = Array2::zeros([query_length, target_length]);
-    let mut scores = Array2::from_elem([query_length, target_length], Score::zero());
-
-    for (query_index, query_char) in query.chars().enumerate() {
-        for (target_index, (previous_target_char, target_char)) in target
-            .chars()
-            .next()
-            .map(|chr| (None, chr))
-            .into_iter()
-            .chain(
-                target
-                    .chars()
-                    .tuple_windows()
-                    .map(|(prev, curr)| (Some(prev), curr)),
-            )
-            .enumerate()
-        {
-            let current_index = [query_index, target_index];
-            let left_index = target_index.checked_sub(1).map(|x| [query_index, x]);
-            let diagonal_index = query_index
-                .checked_sub(1)
-                .zip(target_index.checked_sub(1))
-                .map(Into::<[usize; 2]>::into);
-
-            let match_sequence_length = diagonal_index
-                .and_then(|idx| matches.get(idx))
-                .copied()
-                .unwrap_or(0);
-
-            // If we are not matching on the first query character any more, we only produce a
-            // score if we had a score previously for the last query index (by looking at the diagonal score).
-            // This makes sure that the query always matches in sequence on the target.
-            // For example given a target of "ede" and a query of "de",
-            // we would otherwise produce a wrong high score
-            // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "If diagonal index is not None, it must be valid, otherwise it's a logic error"
-            )]
-            let score = if query_index == 0
-                || diagonal_index.is_some_and(|idx| scores[idx] != Score::zero())
-            {
-                score_one_pair(
-                    query_char,
-                    target_char,
-                    previous_target_char,
-                    match_sequence_length,
-                )?
-            } else {
-                Score::zero()
-            };
-
-            // We have a score and it's equal or larger than the left score (if one exists).
-            // Match: sequence continues growing from previous diag value.
-            // Score: increases by diag score value.
-            if score > Score::zero()
-                && (left_index
-                    .zip(diagonal_index)
-                    .map_or(Ok(true), |(left, diag)| {
-                        Add::add(scores[diag], score).map(|sum| sum >= scores[left])
-                    })?)
-            {
-                matches[current_index] = match_sequence_length + 1;
-                // TODO: simplify?
-                scores[current_index] =
-                    diagonal_index.map_or(Ok(score), |index| scores[index] + score)?;
-            }
-            // We either have no score or the score is lower than the left score.
-            // Match: reset to 0.
-            // Score: pick up from left hand side.
-            else {
-                matches[current_index] = 0;
-                scores[current_index] = left_index.map_or(Score::zero(), |index| scores[index]);
-            }
-        }
-    }
-
-    // Restore positions (starting from bottom right of matrix)
-    let mut positions = Vec::new();
-    let mut query_index_it = (0..query_length).rev().peekable();
-    let mut target_index_it = (0..target_length).rev().peekable();
-    while query_index_it.peek().is_some() && target_index_it.peek().is_some() {
-        let query_index = *query_index_it.peek().unwrap();
-        let target_index = *target_index_it.peek().unwrap();
-        let current_index = [query_index, target_index];
-        let current_match = matches[current_index];
-        if current_match != 0 {
-            positions.push(target_index);
-            query_index_it.next(); // go up
-        }
-        target_index_it.next(); // go left
-    }
-    positions.reverse();
-
-    // Print matrices
-    trace!(
-        "{}",
-        format_matrix("Matches matrix:", query, target, &matches, 4)
-    );
-    trace!(
-        "{}",
-        format_matrix("Scores matrix:", query, target, &scores, 4)
-    );
-
-    let final_score = scores[[query_length - 1, target_length - 1]];
-    debug!(
-        "Target: '{target}', query: '{query}', final score: {final_score}, matching positions: {positions:#?}"
-    );
-
-    if final_score == Score::zero() {
-        return Ok(None);
-    }
-
-    Ok(Some(FuzzyMatch {
-        score: final_score,
-        positions,
-    }))
-}
-
-fn score_one_pair(
-    query_char: char,
-    target_char: char,
-    previous_target_char: Option<char>,
-    match_sequence_length: usize,
-) -> Result<Score, Error> {
-    let query_char_lowercase = query_char.to_lowercase().to_string();
-    let target_char_lowercase = target_char.to_lowercase().to_string();
-
-    // No match - no score
-    if !considered_equal(&query_char_lowercase, &target_char_lowercase) {
-        trace!(
-            "'{query_char}' does not match '{target_char}', score {}",
-            Score::zero()
-        );
-        return Ok(Score::zero());
-    }
-
-    let mut score = Score::zero();
-    // Character match bonus
-    score.traced_add_assign(
-        &format!("'{query_char}' matches '{target_char}'"),
-        match_bonus::base(),
-    )?;
-
-    // Consecutive match bonus
-    if match_sequence_length > 0 {
-        score.traced_add_assign(
-            &format!("Consecutive match of length {match_sequence_length}"),
-            match_bonus::consecutive(match_sequence_length)?,
-        )?;
-    }
-
-    // Same case bonus
-    if query_char == target_char {
-        score.traced_add_assign("Same case", match_bonus::letter_case())?;
-    }
-
-    if let Some(previous_target_char) = previous_target_char {
-        if let Some(separator) = Separator::from_char(previous_target_char) {
-            // After a separator bonus
-            score.traced_add_assign(
-                "Matches after a separator",
-                match_bonus::following_separator(&separator),
-            )?;
-        } else {
-            // Inside word upper case bonus (camel case). We only give this bonus if we're not in a contiguous sequence.
-            // For example:
-            // NPE => NullPointerException = boost
-            // HTTP => HTTP = no boost
-            if target_char.is_uppercase() && match_sequence_length == 0 {
-                score.traced_add_assign(
-                    "Matches camel case inside a word",
-                    match_bonus::camel_case(),
-                )?;
-            }
-        }
-    } else {
-        // Start of word bonus
-        score.traced_add_assign("Matches beginning of the word", match_bonus::word_start())?;
-    }
-
-    trace!("Final score {score}");
-    Ok(score)
-}
-
-fn considered_equal(a: &str, b: &str) -> bool {
-    if a == b {
-        return true;
-    }
-
-    // TODO: is this a good idea for a general-purpose applications?
-    // Special case path separators: ignore platform differences
-    if a == "/" || a == "\\" {
-        return b == "/" || b == "\\";
-    }
-
-    false
-}
-
-// formats matrix like so:
-// `msg:`
-// `    t   a   r   g   e   t`
-// `q   X   X   X   X   X   X`
-// `u   X   X   X   X   X   X`
-// `e   X   X   X   X   X   X`
-// `r   X   X   X   X   X   X`
-// `y   X   X   X   X   X   X`
-fn format_matrix<T: Display>(
-    msg: &str,
-    query: &str,
-    target: &str,
-    matrix: &Array2<T>,
-    indent: usize,
-) -> String {
-    // print 'msg' adding a newline
-    let mut out = String::from(msg);
-    out.push('\n');
-
-    // print header line, e.g. '    t   a   r   g   e   t'
-    out.push(' ');
-    for chr in target.chars() {
-        write!(out, "{chr:>indent$}").expect("'write' should not fail when used like this");
-    }
-    out.push('\n');
-
-    // print the rest
-    let mut query_it = query.chars().enumerate().peekable();
-    while let Some((query_index, chr)) = query_it.next() {
-        out.push(chr);
-        for (target_index, _) in target.chars().enumerate() {
-            write!(
-                out,
-                "{:>width$}",
-                matrix[[query_index, target_index]],
-                width = indent
-            )
-            .expect("'write' should not fail when used like this");
-        }
-
-        if query_it.peek().is_some() {
-            out.push('\n');
-        }
-    }
-
-    out
+    details::compute_fuzzy_match(query, query_length, target, target_length)
 }
 
 #[cfg(test)]
@@ -348,6 +75,7 @@ mod tests {
     )]
 
     use super::*;
+    use crate::score::Score;
 
     #[test]
     fn sanity_query_is_empty() {

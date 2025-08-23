@@ -1,9 +1,9 @@
-use std::error::Error as StdError;
+use std::error::Error;
 use std::fmt::{Display, Formatter, Result};
 use std::num::TryFromIntError;
 
 #[derive(Clone, Copy, Debug)]
-pub struct Error {
+pub struct MatchBonusError {
     pub sequence_length: usize,
     pub source_error: TryFromIntError,
 }
@@ -12,7 +12,7 @@ pub struct Error {
     clippy::min_ident_chars,
     reason = "Corresponds to the name used in the trait"
 )]
-impl Display for Error {
+impl Display for MatchBonusError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(
             f,
@@ -22,8 +22,8 @@ impl Display for Error {
     }
 }
 
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+impl Error for MatchBonusError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.source_error)
     }
 }

@@ -1,10 +1,7 @@
-pub mod error;
-
-use error::Error;
-
-use crate::error::Error as SuperError;
+use crate::details::separator::Separator;
+use crate::errors::match_bonus_error::MatchBonusError;
+use crate::errors::ScoringError as SuperError;
 use crate::score::{PlainScore, Score};
-use crate::separator::Separator;
 
 use std::convert::Into;
 use std::ops::Mul;
@@ -48,7 +45,7 @@ pub const fn camel_case() -> Score {
 pub fn consecutive(length: usize) -> Result<Score, SuperError> {
     const CONSECUTIVE_BONUS_MULTIPLIER: u32 = 5;
 
-    let plain_score = PlainScore::try_from(length).map_err(|err| Error {
+    let plain_score = PlainScore::try_from(length).map_err(|err| MatchBonusError {
         sequence_length: length,
         source_error: err,
     })?;

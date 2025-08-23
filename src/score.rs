@@ -1,4 +1,5 @@
-use crate::error::{ArithmeticOverflowError, Operands};
+use crate::errors::arithmetic_overflow_error::ArithmeticOverflowError;
+use crate::errors::arithmetic_overflow_error::operands::{AddOperands, MulOperands};
 
 use log::trace;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -9,7 +10,7 @@ use std::ops::{Add, Mul};
 /// # Fields:
 ///   * a [`PlainScore`] representing the actual number
 ///
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct Score(pub PlainScore);
 
 /// Underlying numeric representation of [`Score`]
@@ -51,7 +52,7 @@ impl Add for Score {
     fn add(self, rhs: Self) -> Self::Output {
         self.0
             .checked_add(rhs.0)
-            .ok_or(ArithmeticOverflowError::Add(Operands(self, rhs)))
+            .ok_or(ArithmeticOverflowError::Add(Box::new(AddOperands(self, rhs))))
             .map(Score)
     }
 }
@@ -62,7 +63,7 @@ impl Mul<u32> for Score {
     fn mul(self, rhs: u32) -> Self::Output {
         self.0
             .checked_mul(rhs)
-            .ok_or(ArithmeticOverflowError::Mul(Operands(self, rhs)))
+            .ok_or(ArithmeticOverflowError::Mul(Box::new(MulOperands(self, rhs))))
             .map(Score)
     }
 }

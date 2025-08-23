@@ -4,7 +4,7 @@ pub mod match_bonus_error;
 use arithmetic_overflow_error::ArithmeticOverflowError;
 use match_bonus_error::MatchBonusError;
 
-use std::error::Error as StdError;
+use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result};
 
 #[derive(Debug)]
@@ -32,8 +32,8 @@ impl Display for ScoringError {
     }
 }
 
-impl StdError for ScoringError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+impl Error for ScoringError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::ArithmeticOverflow(err) => Some(err),
             Self::MatchBonusError(err) => Some(&err.source_error),

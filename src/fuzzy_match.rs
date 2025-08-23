@@ -1,7 +1,7 @@
 use crate::score::Score;
 
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Display, Formatter, Result};
 
 /// Represents a fuzzy match result.
 ///
@@ -41,7 +41,7 @@ impl Display for FuzzyMatch {
         clippy::min_ident_chars,
         reason = "Corresponds to the name used in the trait"
     )]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let mut positions = String::new();
         let mut pos_itr = self.positions.iter().peekable();
         while let Some(pos) = pos_itr.next() {

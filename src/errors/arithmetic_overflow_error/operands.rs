@@ -33,6 +33,10 @@ impl<T: Add<T> + Operand> BinaryOpOperands for AddOperands<T> {
 
 impl<T: Add<T> + Operand + Copy> Copy for AddOperands<T> {}
 
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "False positive, the trait bound is different from the `Copy` implementation"
+)]
 impl<T: Add<T> + Operand + Clone> Clone for AddOperands<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone(), self.1.clone())
@@ -99,6 +103,10 @@ where
 {
 }
 
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "False positive, the trait bound is different from the `Copy` implementation"
+)]
 impl<T, F> Clone for MulOperands<T, F>
 where
     T: Mul<F> + Operand + Clone,

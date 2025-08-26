@@ -32,7 +32,7 @@ pub fn compute_fuzzy_match(
     target_length: usize,
 ) -> Result<Option<FuzzyMatch>, FuzzyScoreError> {
     // Build a scorer matrix:
-    let matrix = build_scorer_matrix(query, target)?;
+    let matrix = build_scorer_matrix(query, query_length, target, target_length)?;
 
     // Restore positions (starting from bottom right of matrix).
     // A match (if any) should be located on one of the diagonals.
@@ -91,7 +91,12 @@ pub fn compute_fuzzy_match(
     }))
 }
 
-fn build_scorer_matrix(query: &str, target: &str) -> Result<ScorerMatrix, FuzzyScoreError> {
+fn build_scorer_matrix(
+    query: &str,
+    query_length: usize,
+    target: &str,
+    target_length: usize,
+) -> Result<ScorerMatrix, FuzzyScoreError> {
     // The matrix is composed of query q and target t.
     // For each index we score q[i] with t[i] and compare that with the previous score.
     // If the score is equal or larger, we keep the match.
@@ -105,8 +110,6 @@ fn build_scorer_matrix(query: &str, target: &str) -> Result<ScorerMatrix, FuzzyS
     //  r   X   X   X   X   X   X
     //  y   X   X   X   X   X   X
     //
-    let target_length = target.chars().count();
-    let query_length = query.chars().count();
     let mut matrix = Array2::from_elem(
         [query_length, target_length],
         ScorerMatrixElement::default(),
@@ -127,74 +130,101 @@ fn build_scorer_matrix(query: &str, target: &str) -> Result<ScorerMatrix, FuzzyS
             .enumerate()
         {
             let current_index = [query_index, target_index];
-            let left_index = target_index.checked_sub(1).map(|x| [query_index, x]);
-            let diagonal_index = query_index
+            let left_index = target_index
                 .checked_sub(1)
-                .zip(target_index.checked_sub(1))
-                .map(Into::<[usize; 2]>::into);
+                .map(|target_index| [query_index, target_index]);
+            let diagonal_index =
+                left_index.and_then(|[q_idx, t_idx]| q_idx.checked_sub(1).map(|sub| [sub, t_idx]));
 
-            let match_sequence_length = diagonal_index
-                .and_then(|idx| matrix.get(idx))
-                .map_or(0, |elem| elem.match_sequence_length);
+            match (left_index, diagonal_index) {
+                // This is the left edge of the matrix, there is no previous matching sequence.
+                (None, None) => {
+                    let score = if query_index == 0 {
+                        // This is the top left element (i.e. there is no match sequence yet).
+                        score_one_pair(query_char, target_char, previous_target_char, 0)?
+                    } else {
+                        // TODO: more comments
+                        Score::zero()
+                    };
 
-            // If we are not matching on the first query character any more, we only produce a
-            // score if we had a score previously for the last query index (by looking at the diagonal score).
-            // This makes sure that the query always matches in sequence on the target.
-            // For example given a target of "ede" and a query of "de",
-            // we would otherwise produce a wrong high score
-            // for query[1] ("e") matching on target[0] ("e") because of the "beginning of word" boost.
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "If diagonal index is not None, it must be valid, otherwise it's a logic error"
-            )]
-            let score = if query_index == 0
-                || diagonal_index.is_some_and(|idx| matrix[idx].score != Score::zero())
-            {
-                score_one_pair(
-                    query_char,
-                    target_char,
-                    previous_target_char,
-                    match_sequence_length,
-                )?
-            } else {
-                Score::zero()
-            };
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "An out-of-bounds index indicates a logic error"
+                    )]
+                    let current_element = &mut matrix[current_index];
+                    current_element.match_sequence_length = usize::from(!score.is_zero());
+                    current_element.score = score;
+                }
+                #[expect(
+                    clippy::unreachable,
+                    reason = "A matrix element cannot have a diagonal neighbor, but no left one"
+                )]
+                // This case is impossible
+                (None, Some(_)) => unreachable!(
+                    "An element with a diagonal neighbor, but without a left one is impossible"
+                ),
+                // This is top edge of the matrix (bar the top left element), there is no previous matching sequence.
+                (Some(left), None) => {
+                    let score = score_one_pair(query_char, target_char, previous_target_char, 0)?;
 
-            // We have a score and it's equal or larger than the left score (if one exists).
-            // Match: sequence continues growing from previous diag value.
-            // Score: increases by diag score value.
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "An out-of-bounds index indicates a logic error"
-            )]
-            if score > Score::zero()
-                && (left_index
-                    .zip(diagonal_index)
-                    .map_or(Ok(true), |(left, diag)| {
-                        Add::add(matrix[diag].score, score).map(|sum| sum >= matrix[left].score)
-                    })?)
-            {
-                matrix[current_index].match_sequence_length =
-                    match_sequence_length.checked_add(1).ok_or_else(|| {
-                        ArithmeticOverflowError::Add(Box::new(AddOperands(
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "An out-of-bounds index indicates a logic error"
+                    )]
+                    let current_element = &mut matrix[current_index];
+                    current_element.match_sequence_length = usize::from(!score.is_zero());
+                    matrix[current_index].score = if score > Score::zero() {
+                        score
+                    } else {
+                        matrix[left].score
+                    };
+                }
+                (Some(left), Some(diag)) => {
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "An out-of-bounds index indicates a logic error"
+                    )]
+                    let ScorerMatrixElement {
+                        score: diag_score,
+                        match_sequence_length,
+                    } = matrix[diag];
+
+                    let score = if diag_score.is_zero() {
+                        Score::zero()
+                    } else {
+                        score_one_pair(
+                            query_char,
+                            target_char,
+                            previous_target_char,
                             match_sequence_length,
-                            1,
-                        )))
-                    })?;
-                // TODO: simplify?
+                        )?
+                    };
 
-                matrix[current_index].score = diagonal_index.map_or(Ok(score), |index| {
-                    let matrix_score = matrix[index].score;
-                    Add::add(matrix_score, score)
-                })?;
-            }
-            // We either have no score or the score is lower than the left score.
-            // Match: reset to 0.
-            // Score: pick up from left hand side.
-            else {
-                matrix[current_index].match_sequence_length = 0;
-                matrix[current_index].score =
-                    left_index.map_or(Score::zero(), |index| matrix[index].score);
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "An out-of-bounds index indicates a logic error"
+                    )]
+                    let left_score = matrix[left].score;
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "An out-of-bounds index indicates a logic error"
+                    )]
+                    let current_element = &mut matrix[current_index];
+                    if !score.is_zero() && Add::add(diag_score, score)? >= left_score {
+                        current_element.match_sequence_length =
+                            match_sequence_length.checked_add(1).ok_or_else(|| {
+                                ArithmeticOverflowError::Add(Box::new(AddOperands(
+                                    match_sequence_length,
+                                    1,
+                                )))
+                            })?;
+
+                        current_element.score = Add::add(diag_score, score)?;
+                    } else {
+                        current_element.match_sequence_length = 0;
+                        current_element.score = left_score;
+                    }
+                }
             }
         }
     }

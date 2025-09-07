@@ -2,9 +2,7 @@ use crate::details::match_bonus;
 use crate::details::separator::Separator;
 use crate::errors::FuzzyScoreError;
 use crate::errors::arithmetic_overflow_error::ArithmeticOverflowError;
-use crate::errors::arithmetic_overflow_error::operands::AddOperands;
 use crate::score::Score;
-
 
 use itertools::Itertools as _;
 use ndarray::Array2;
@@ -176,9 +174,9 @@ fn compute_element(
     if !score.is_zero() && Add::add(diag_score, score)? >= left_score {
         return Ok(ScorerMatrixElement {
             score: Add::add(diag_score, score)?,
-            match_sequence_length: match_sequence_length.checked_add(1).ok_or_else(|| {
-                ArithmeticOverflowError::Add(Box::new(AddOperands(match_sequence_length, 1)))
-            })?,
+            match_sequence_length: match_sequence_length
+                .checked_add(1)
+                .ok_or_else(|| ArithmeticOverflowError::add_overflow(match_sequence_length, 1))?,
         });
     }
 
@@ -267,3 +265,5 @@ fn considered_equal(a: &str, b: &str) -> bool {
 
     false
 }
+
+// TODO: Docs, Tests

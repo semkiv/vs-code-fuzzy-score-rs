@@ -27,3 +27,5 @@ impl Error for MatchBonusError {
         Some(&self.source_error)
     }
 }
+
+// TODO: Docs, Tests

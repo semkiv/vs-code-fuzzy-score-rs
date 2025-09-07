@@ -1,5 +1,4 @@
 use crate::errors::arithmetic_overflow_error::ArithmeticOverflowError;
-use crate::errors::arithmetic_overflow_error::operands::{AddOperands, MulOperands};
 
 use log::trace;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -8,14 +7,15 @@ use std::ops::{Add, Mul};
 /// Score is used to quantify how good a match is: the higher score the better match.
 ///
 /// # Fields:
-///   * a [`PlainScore`] representing the actual number
+///   * a [`NumericRepresentation`] with the actual number
 ///
+// TODO: better name?
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct Score(pub PlainScore);
+pub struct Score(pub NumericRepresentation);
 
 /// Underlying numeric representation of [`Score`]
 ///
-pub type PlainScore = u32;
+pub type NumericRepresentation = u32;
 
 impl Score {
     #[must_use]
@@ -52,7 +52,7 @@ impl Add for Score {
     fn add(self, rhs: Self) -> Self::Output {
         self.0
             .checked_add(rhs.0)
-            .ok_or(ArithmeticOverflowError::Add(Box::new(AddOperands(self, rhs))))
+            .ok_or_else(|| ArithmeticOverflowError::add_overflow(self, rhs))
             .map(Score)
     }
 }
@@ -63,7 +63,7 @@ impl Mul<u32> for Score {
     fn mul(self, rhs: u32) -> Self::Output {
         self.0
             .checked_mul(rhs)
-            .ok_or(ArithmeticOverflowError::Mul(Box::new(MulOperands(self, rhs))))
+            .ok_or_else(|| ArithmeticOverflowError::mul_overflow(self, rhs))
             .map(Score)
     }
 }

@@ -7,11 +7,12 @@ pub mod score;
 mod details;
 mod errors;
 
-use fuzzy_match::FuzzyMatch;
 use errors::FuzzyScoreError;
+use fuzzy_match::FuzzyMatch;
 
 use log::debug;
 
+// TODO: More examples
 /// Contains main part of the matching and scoring logic.
 ///
 /// Matches `query` against `target`.
@@ -26,20 +27,20 @@ use log::debug;
 ///
 /// ```
 /// // there's a match
-/// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz").unwrap();
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("baa", "foobarbaz").unwrap().unwrap();
 /// assert_eq!(m.score.0, 11);
 /// assert_eq!(*m.positions, vec![3, 4, 7]);
 /// ```
 ///
 /// ```
 /// // no match
-/// let m = vscode_fuzzy_score_rs::fuzzy_match("foo", "barbaz");
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("foo", "barbaz").unwrap();
 /// assert!(m.is_none());
 /// ```
 ///
 /// ```
 /// // target is too short
-/// let m = vscode_fuzzy_score_rs::fuzzy_match("foobar", "bar");
+/// let m = vscode_fuzzy_score_rs::fuzzy_match("foobar", "bar").unwrap();
 /// assert!(m.is_none());
 /// ```
 ///

@@ -53,8 +53,7 @@ impl Display for FuzzyMatch {
         write!(
             f,
             "FuzzyMatch {{ score: {}, positions: [{}] }}",
-            self.score,
-            positions
+            self.score, positions
         )
     }
 }

@@ -145,3 +145,5 @@ fn format_scorer_matrix(query: &str, target: &str, matrix: &ScorerMatrix, indent
     matches.push_str(&scores);
     matches
 }
+
+// TODO: Docs, Tests
